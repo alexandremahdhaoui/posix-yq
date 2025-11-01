@@ -691,18 +691,37 @@ yq_array_access() {
             }
             ' "$_file"
         else
-            # Positive index
+            # Positive index - print the entire object/item at this index
             awk -v target="$_idx" '
             BEGIN {
                 idx = 0
+                found = 0
+                in_item = 0
             }
             /^-/ {
-                if (idx == target) {
-                    sub(/^- /, "")
-                    print
+                # Start of a new array item
+                if (found == 1) {
+                    # We were printing a previous item, stop now
                     exit
                 }
-                idx++
+                if (idx == target) {
+                    # Found the target index
+                    found = 1
+                    in_item = 1
+                    sub(/^- /, "")
+                    print
+                } else {
+                    idx++
+                }
+                next
+            }
+            /^[^ -]/ && found == 1 {
+                # Non-indented line after finding target = next item
+                exit
+            }
+            found == 1 && in_item == 1 {
+                # We'\''re in the target item, print all lines
+                print
             }
             ' "$_file"
         fi
@@ -1291,10 +1310,89 @@ yq_del() {
     fi
 }
 
+# Convert YAML output to JSON format
+# Input: Multi-line YAML formatted as "key: value" pairs from iteration
+# Output: One or more JSON objects, one per line
+yq_yaml_to_json() {
+    _yaml_input="$1"
+
+    # Use AWK to detect object boundaries
+    # When we see a key we've seen before at depth 0, it means a new object is starting
+    printf '%s\n' "$_yaml_input" | awk '
+    BEGIN {
+        first = 1  # First property in current object
+        obj_started = 0
+    }
+    /^[[:space:]]*$/ {
+        # Empty line - skip but dont close object (we use key repetition for boundaries)
+        next
+    }
+    /^[^[:space:]]/ {
+        # Line starts at column 0, not indented - a top-level property
+        if ($0 ~ /^[^:]+:[[:space:]]*/) {
+            # Extract the key
+            idx = index($0, ":")
+            key = substr($0, 1, idx - 1)
+
+            # Check if we'\''ve seen this key in the current object
+            # If yes and we'\''ve started an object, close the current one and start new
+            if (current_obj_keys[key] == 1 && obj_started == 1) {
+                printf "}\n"
+                first = 1
+                # Reset the object keys tracking for the new object
+                for (k in current_obj_keys) delete current_obj_keys[k]
+            }
+
+            # Mark this key as seen in the current object
+            current_obj_keys[key] = 1
+
+            # Start new object if needed
+            if (first == 1) {
+                printf "{"
+                first = 0
+                obj_started = 1
+            } else {
+                printf ","
+            }
+
+            # Extract value (after the colon)
+            value = substr($0, idx + 1)
+
+            # Trim whitespace from value
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+
+            # Remove quotes from value if present
+            if (value ~ /^".*"$/) {
+                value = substr(value, 2, length(value) - 2)
+            }
+
+            # Escape JSON special characters in value
+            gsub(/\\/, "\\\\", value)
+            gsub(/"/, "\\\"", value)
+
+            # Output JSON key:value pair
+            printf "\"%s\":\"%s\"", key, value
+        }
+    }
+    END {
+        # Close final object if one is open
+        if (obj_started == 1) {
+            printf "}\n"
+        }
+    }
+    '
+}
+
 # Main entry point
 _exit_on_null=0
 _output_format="yaml"
 _raw_output=0
+_indent_level=2
+
+# Skip yq subcommand if present (e.g., "yq e -o=j" has 'e' as subcommand)
+if [ "$1" = "e" ] || [ "$1" = "eval" ] || [ "$1" = "select" ] || [ "$1" = "empty" ]; then
+    shift
+fi
 
 # Parse flags
 while [ $# -gt 0 ]; do
@@ -1315,8 +1413,20 @@ while [ $# -gt 0 ]; do
             _output_format="${1#-o=}"
             shift
             ;;
-        -j|--json|--raw-input)
-            # Placeholder for other flags - just skip them for now
+        -I|--indent)
+            _indent_level="$2"
+            shift 2
+            ;;
+        -I=*)
+            _indent_level="${1#-I=}"
+            shift
+            ;;
+        -j|--json)
+            _output_format="json"
+            shift
+            ;;
+        --raw-input)
+            # Placeholder for raw input mode
             shift
             ;;
         -*)
@@ -1375,11 +1485,18 @@ else
     _result=$(yq_unquote "$_result")
 fi
 
-# Clean up result: remove blank line separators from array iteration
-# The iteration uses blank lines as separators, but we only want actual content
-while printf '%s' "$_result" | grep -q '^[[:space:]]*$'; do
-    _result=$(printf '%s\n' "$_result" | grep -v '^[[:space:]]*$')
-done
+# Handle JSON output format (must be before cleanup to preserve object separators)
+if [ "$_output_format" = "json" ] || [ "$_output_format" = "j" ]; then
+    # Convert YAML output to JSON
+    # The function handles grouping of multi-line blocks separated by blank lines
+    _result=$(yq_yaml_to_json "$_result")
+else
+    # Clean up result: remove blank line separators from array iteration
+    # The iteration uses blank lines as separators, but we only want actual content
+    while printf '%s' "$_result" | grep -q '^[[:space:]]*$'; do
+        _result=$(printf '%s\n' "$_result" | grep -v '^[[:space:]]*$')
+    done
+fi
 
 # Output result (preserve newlines from multiline results)
 printf '%s\n' "$_result"
