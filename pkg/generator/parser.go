@@ -29,8 +29,7 @@ yq_parse() {
 
     # Check for recursive descent operator BEFORE removing leading dot
     if [ "$_query" = ".." ]; then
-        # Recursive descent not fully implemented yet - return empty for now
-        # TODO: Fix variable scoping issues in recursive functions
+        yq_recursive_descent "$_file"
         _yq_parse_depth=$((_yq_parse_depth - 1))
         return
     fi

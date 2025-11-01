@@ -66,8 +66,24 @@ for scenario_dir in "$SCENARIOS_DIR"/[0-9][0-9]-*; do
 
     # Check if required files exist
     COMMAND_FILE="${scenario_dir}/command.txt"
-    INPUT_FILE="${scenario_dir}/input.yaml"
-    EXPECTED_OUTPUT="${scenario_dir}/output.yaml"
+
+    # Try to find input file - could be .yaml, .json, or other formats
+    INPUT_FILE=""
+    if [ -f "${scenario_dir}/input.yaml" ]; then
+        INPUT_FILE="${scenario_dir}/input.yaml"
+    elif [ -f "${scenario_dir}/input.json" ]; then
+        INPUT_FILE="${scenario_dir}/input.json"
+    elif [ -f "${scenario_dir}/input.txt" ]; then
+        INPUT_FILE="${scenario_dir}/input.txt"
+    fi
+
+    # Expected output could be .yaml or .txt (for error messages)
+    EXPECTED_OUTPUT=""
+    if [ -f "${scenario_dir}/output.yaml" ]; then
+        EXPECTED_OUTPUT="${scenario_dir}/output.yaml"
+    elif [ -f "${scenario_dir}/output.txt" ]; then
+        EXPECTED_OUTPUT="${scenario_dir}/output.txt"
+    fi
 
     if [ ! -f "$COMMAND_FILE" ]; then
         echo "${RED}✗ $SCENARIO_NAME: command.txt not found${NC}"
@@ -75,49 +91,79 @@ for scenario_dir in "$SCENARIOS_DIR"/[0-9][0-9]-*; do
         continue
     fi
 
-    if [ ! -f "$INPUT_FILE" ]; then
-        echo "${RED}✗ $SCENARIO_NAME: input.yaml not found${NC}"
+    if [ -z "$EXPECTED_OUTPUT" ]; then
+        echo "${RED}✗ $SCENARIO_NAME: output file not found (output.yaml or output.txt)${NC}"
         FAILED_TESTS=$((FAILED_TESTS + 1))
         continue
     fi
 
-    if [ ! -f "$EXPECTED_OUTPUT" ]; then
-        echo "${RED}✗ $SCENARIO_NAME: output.yaml not found${NC}"
-        FAILED_TESTS=$((FAILED_TESTS + 1))
-        continue
-    fi
-
-    # Read the command (query) from command.txt
-    # Remove any trailing newlines or whitespace
-    QUERY=$(cat "$COMMAND_FILE" | tr -d '\n')
+    # Read the command from command.txt
+    # The command may contain multiple arguments (e.g., "eval-all '.query'")
+    COMMAND=$(cat "$COMMAND_FILE" | tr -d '\n')
 
     # Run posix-yq and capture output
     # Use a temporary file to capture the actual output
     ACTUAL_OUTPUT=$(mktemp)
     ERROR_OUTPUT=$(mktemp)
 
-    # Execute the command with a timeout (5 seconds per test)
-    if timeout 5 "$POSIX_YQ" "$QUERY" "$INPUT_FILE" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT"; then
-        # Command executed successfully, compare output
-        if diff -q "$EXPECTED_OUTPUT" "$ACTUAL_OUTPUT" >/dev/null 2>&1; then
-            echo "${GREEN}✓ $SCENARIO_NAME${NC}"
-            PASSED_TESTS=$((PASSED_TESTS + 1))
+    # Build the command - if INPUT_FILE exists, include it; otherwise, run without it
+    # This handles commands that work on stdin or expect file-not-found errors
+    # Use eval in a subshell to properly handle commands with spaces and special characters
+    if [ -n "$INPUT_FILE" ]; then
+        timeout 5 sh -c "\"$POSIX_YQ\" \"$COMMAND\" \"$INPUT_FILE\" >\"$ACTUAL_OUTPUT\" 2>\"$ERROR_OUTPUT\""
+    else
+        timeout 5 sh -c "\"$POSIX_YQ\" \"$COMMAND\" >\"$ACTUAL_OUTPUT\" 2>\"$ERROR_OUTPUT\""
+    fi
+    EXIT_CODE=$?
+
+    # Check if we expect error output (output.txt) or regular output (output.yaml)
+    if [ "${EXPECTED_OUTPUT##*.}" = "txt" ]; then
+        # This test expects an error message - compare stderr
+        if [ $EXIT_CODE -ne 0 ]; then
+            # Command failed as expected, compare error output
+            if diff -q "$EXPECTED_OUTPUT" "$ERROR_OUTPUT" >/dev/null 2>&1; then
+                echo "${GREEN}✓ $SCENARIO_NAME${NC}"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                echo "${RED}✗ $SCENARIO_NAME: error output mismatch${NC}"
+                echo "  Command: $COMMAND"
+                echo "  Expected error:"
+                sed 's/^/    /' "$EXPECTED_OUTPUT"
+                echo "  Got error:"
+                sed 's/^/    /' "$ERROR_OUTPUT"
+                FAILED_TESTS=$((FAILED_TESTS + 1))
+            fi
         else
-            echo "${RED}✗ $SCENARIO_NAME: output mismatch${NC}"
-            echo "  Query: $QUERY"
-            echo "  Expected:"
-            sed 's/^/    /' "$EXPECTED_OUTPUT"
-            echo "  Got:"
+            echo "${RED}✗ $SCENARIO_NAME: expected command to fail but it succeeded${NC}"
+            echo "  Command: $COMMAND"
+            echo "  Output:"
             sed 's/^/    /' "$ACTUAL_OUTPUT"
             FAILED_TESTS=$((FAILED_TESTS + 1))
         fi
     else
-        # Command failed
-        echo "${RED}✗ $SCENARIO_NAME: command failed${NC}"
-        echo "  Query: $QUERY"
-        echo "  Error:"
-        sed 's/^/    /' "$ERROR_OUTPUT"
-        FAILED_TESTS=$((FAILED_TESTS + 1))
+        # Regular test - compare stdout
+        if [ $EXIT_CODE -eq 0 ]; then
+            # Command executed successfully, compare output
+            if diff -q "$EXPECTED_OUTPUT" "$ACTUAL_OUTPUT" >/dev/null 2>&1; then
+                echo "${GREEN}✓ $SCENARIO_NAME${NC}"
+                PASSED_TESTS=$((PASSED_TESTS + 1))
+            else
+                echo "${RED}✗ $SCENARIO_NAME: output mismatch${NC}"
+                echo "  Command: $COMMAND"
+                echo "  Expected:"
+                sed 's/^/    /' "$EXPECTED_OUTPUT"
+                echo "  Got:"
+                sed 's/^/    /' "$ACTUAL_OUTPUT"
+                FAILED_TESTS=$((FAILED_TESTS + 1))
+            fi
+        else
+            # Command failed
+            echo "${RED}✗ $SCENARIO_NAME: command failed${NC}"
+            echo "  Command: $COMMAND"
+            echo "  Error:"
+            sed 's/^/    /' "$ERROR_OUTPUT"
+            FAILED_TESTS=$((FAILED_TESTS + 1))
+        fi
     fi
 
     # Clean up temporary files

@@ -203,7 +203,7 @@ yq_recursive_descent_pipe() {
         awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
             match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
             print substr($0, RSTART, RLENGTH)
-        }' "$_rdp_file" > "$_rdp_tmp_keys"
+        }' "$_rdp_file" > "$_rdp_tmp_keys" 2>/dev/null
 
         # Read all keys into a space-separated list to avoid fd conflicts
         _rdp_keys_list=$(cat "$_rdp_tmp_keys" | tr '\n' ' ')
@@ -212,7 +212,7 @@ yq_recursive_descent_pipe() {
         # Process each key
         for _rdp_key in $_rdp_keys_list; do
             _rdp_tmp_child=$(mktemp)
-            yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child"
+            yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child" 2>/dev/null
             if [ -s "$_rdp_tmp_child" ]; then
                 yq_recursive_descent_pipe "$_rdp_tmp_child" "$_rdp_pipe_expr"
             fi
@@ -239,32 +239,40 @@ yq_recursive_descent_pipe() {
 yq_recursive_descent() {
     _rd_file="$1"
 
+    [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[recursive_descent]: processing file with size $(wc -c < "$_rd_file")"
+
     # Output the current node
     cat "$_rd_file"
 
     # Recursively descend into all child nodes
     # Check if it'\''s an object (has keys with colons)
     if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rd_file" 2>/dev/null; then
-        # For each TOP-LEVEL key in the object (indent = 0)
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[recursive_descent]: found object with keys"
+
+        # Extract top-level keys and process each one
+        # Store in temp file to avoid subshell issues
         _rd_tmp_keys=$(mktemp)
         awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
             match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
-            print substr($0, RSTART, RLENGTH)
-        }' "$_rd_file" > "$_rd_tmp_keys"
-
-        # Read all keys into a space-separated list to avoid fd conflicts
-        _rd_keys_list=$(cat "$_rd_tmp_keys" | tr '\n' ' ')
-        rm -f "$_rd_tmp_keys"
+            key = substr($0, RSTART, RLENGTH)
+            print key
+        }' "$_rd_file" 2>/dev/null > "$_rd_tmp_keys"
 
         # Process each key
-        for _rd_key in $_rd_keys_list; do
+        while IFS= read -r _rd_key || [ -n "$_rd_key" ]; do
+            [ -z "$_rd_key" ] && continue
+            [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[recursive_descent]: processing key: $_rd_key"
             _rd_tmp_child=$(mktemp)
-            yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp_child"
+            yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp_child" 2>/dev/null
             if [ -s "$_rd_tmp_child" ]; then
+                [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[recursive_descent]: recursing into $_rd_key"
                 yq_recursive_descent "$_rd_tmp_child"
             fi
             rm -f "$_rd_tmp_child"
-        done
+        done < "$_rd_tmp_keys"
+        rm -f "$_rd_tmp_keys"
+
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[recursive_descent]: finished processing all keys"
     # Check if it'\''s an array
     elif grep -q '^-' "$_rd_file" 2>/dev/null; then
         # For each element in the array
