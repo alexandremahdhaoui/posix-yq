@@ -49,7 +49,7 @@ yq_parse() {
 
         # Process the parenthesized part first
         _inner=$(echo "$_paren_part" | sed 's/^(//' | sed 's/)$//')
-        _tmp_paren=$(mktemp)
+        _tmp_paren=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_inner" "$_file" > "$_tmp_paren"
 
         # Then process what comes after (including the pipe) with the result
@@ -66,7 +66,7 @@ yq_parse() {
         _after_alt=$(echo "$_query" | sed 's/.* \/\/ //')
 
         # Try to evaluate the first part
-        _tmp_alt=$(mktemp)
+        _tmp_alt=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_before_alt" "$_file" > "$_tmp_alt" 2>/dev/null
 
         # Check if result is empty, null, or doesn't exist
@@ -152,10 +152,10 @@ yq_parse() {
             [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration handler: processing items with remainder: '$_after_pipe'"
             # Create unique state files for this iteration level
             # Each level gets its own state file that won't be clobbered by nested calls
-            _iter_state=$(mktemp)
+            _iter_state=$(mktemp -p "$_YQ_TEMP_DIR")
 
             # Process left side to get items
-            _tmp_pipe=$(mktemp)
+            _tmp_pipe=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_parse "$_before_pipe" "$_file" > "$_tmp_pipe"
 
             # Debug: Show what's in tmp_pipe
@@ -165,7 +165,7 @@ yq_parse() {
             if [ -s "$_tmp_pipe" ]; then
                 # Process each item separately
                 # We need to detect item boundaries for multi-line items
-                _iter_tmp_items=$(mktemp)
+                _iter_tmp_items=$(mktemp -p "$_YQ_TEMP_DIR")
                 [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: about to split AWK input, first 10 lines:" && >&2 head -10 "$_tmp_pipe" | >&2 sed "s/^/  /"
                 [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: AWK input has $(wc -l < $_tmp_pipe) lines total"
                 awk -v tmpbase="$_iter_tmp_items" '
@@ -278,7 +278,7 @@ yq_parse() {
         _std_before_pipe="$_before_pipe"
         _std_after_pipe="$_after_pipe"
 
-        _tmp_pipe=$(mktemp)
+        _tmp_pipe=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_std_before_pipe" "$_file" > "$_tmp_pipe"
 
         # Process second part with result from first part
@@ -326,7 +326,7 @@ yq_parse() {
                 _part_value=$(echo "$_part" | sed 's/^"\(.*\)"$/\1/')
             else
                 # Expression - evaluate it
-                _tmp_concat=$(mktemp)
+                _tmp_concat=$(mktemp -p "$_YQ_TEMP_DIR")
                 yq_parse "$_part" "$_file" > "$_tmp_concat"
                 _part_value=$(cat "$_tmp_concat")
                 # Remove quotes if present
@@ -343,7 +343,7 @@ yq_parse() {
             _part_value=$(echo "$_remaining" | sed 's/^"\(.*\)"$/\1/')
         else
             # Expression
-            _tmp_concat=$(mktemp)
+            _tmp_concat=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_parse "$_remaining" "$_file" > "$_tmp_concat"
             _part_value=$(cat "$_tmp_concat")
             # Remove quotes if present
@@ -437,7 +437,7 @@ yq_parse() {
     _remainder=$(echo "$_remainder" | sed 's/^\.//')
 
     # Apply the first token operation
-    _tmp_result=$(mktemp)
+    _tmp_result=$(mktemp -p "$_YQ_TEMP_DIR")
 
     case "$_first_token" in
         "[]")
@@ -463,7 +463,7 @@ yq_parse() {
                 _line_num=0
                 while IFS= read -r _line || [ -n "$_line" ]; do
                     _line_num=$((_line_num + 1))
-                    _item_file=$(mktemp)
+                    _item_file=$(mktemp -p "$_YQ_TEMP_DIR")
                     echo "$_line" > "$_item_file"
                     yq_parse "$_remainder" "$_item_file"
                     rm -f "$_item_file"

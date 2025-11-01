@@ -20,8 +20,33 @@ func GenerateShellHeader() string {
 	return `
 # Main yq script - POSIX compliant implementation
 
-# Initialize depth counter for debug output
-_yq_parse_depth=0
+# Global variables
+_yq_parse_depth=0                    # Initialize depth counter for debug output
+_YQ_TEMP_DIR=""                      # Temp directory for all temp files
+_yq_temp_dir_created=0               # Flag to track if we created the temp dir
+
+# Initialize temp directory
+_yq_init_temp_dir() {
+    if [ -z "$_YQ_TEMP_DIR" ]; then
+        _YQ_TEMP_DIR=$(mktemp -d) || {
+            >&2 echo "Error: Failed to create temporary directory"
+            exit 1
+        }
+        _yq_temp_dir_created=1
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Created temp directory: $_YQ_TEMP_DIR"
+    fi
+}
+
+# Cleanup temp directory
+_yq_cleanup_temp_dir() {
+    if [ -n "$_YQ_TEMP_DIR" ] && [ $_yq_temp_dir_created -eq 1 ]; then
+        rm -rf "$_YQ_TEMP_DIR"
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Cleaned up temp directory: $_YQ_TEMP_DIR"
+    fi
+}
+
+# Setup trap handlers for cleanup on exit
+trap '_yq_cleanup_temp_dir' EXIT INT TERM
 
 # Helper function to indent debug output based on call depth
 _yq_debug_indent() {

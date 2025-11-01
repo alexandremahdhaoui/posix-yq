@@ -67,11 +67,11 @@ yq_update() {
     _update_expr=$(echo "$_expr" | sed 's/.* |= //')
 
     # Get current value
-    _tmp_current=$(mktemp)
+    _tmp_current=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_path" "$_file" > "$_tmp_current"
 
     # Apply the update expression to the current value
-    _tmp_updated=$(mktemp)
+    _tmp_updated=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_update_expr" "$_tmp_current" > "$_tmp_updated"
     _new_value=$(cat "$_tmp_updated")
 

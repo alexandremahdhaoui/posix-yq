@@ -24,7 +24,7 @@ yq_map() {
     _file="$2"
 
     # Create temporary file with grep results to avoid subshell issues
-    _tmp_grep=$(mktemp)
+    _tmp_grep=$(mktemp -p "$_YQ_TEMP_DIR")
     grep '^-' "$_file" > "$_tmp_grep"
 
     # Iterate over array elements
@@ -45,7 +45,7 @@ yq_map() {
             _result=$((_value + _addend))
         # Handle key access like ".name"
         elif echo "$_expr" | grep -q '^\.[a-zA-Z_]'; then
-            _tmp_item=$(mktemp)
+            _tmp_item=$(mktemp -p "$_YQ_TEMP_DIR")
             echo "$_value" > "$_tmp_item"
             _result=$(yq_parse "$_expr" "$_tmp_item")
             rm -f "$_tmp_item"
@@ -115,7 +115,7 @@ yq_compare() {
     fi
 
     # Evaluate left side (may produce multiple values)
-    _tmp_left=$(mktemp)
+    _tmp_left=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
 
     # Process null comparisons
@@ -190,7 +190,7 @@ yq_recursive_descent_pipe() {
     _rdp_pipe_expr="$2"
 
     # Process current node through pipe
-    _rdp_tmp_node=$(mktemp)
+    _rdp_tmp_node=$(mktemp -p "$_YQ_TEMP_DIR")
     cat "$_rdp_file" > "$_rdp_tmp_node"
     yq_parse "$_rdp_pipe_expr" "$_rdp_tmp_node"
     rm -f "$_rdp_tmp_node"
@@ -199,7 +199,7 @@ yq_recursive_descent_pipe() {
     # Check if it'\''s an object (has keys with colons)
     if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rdp_file" 2>/dev/null; then
         # For each TOP-LEVEL key in the object (indent = 0)
-        _rdp_tmp_keys=$(mktemp)
+        _rdp_tmp_keys=$(mktemp -p "$_YQ_TEMP_DIR")
         awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
             match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
             print substr($0, RSTART, RLENGTH)
@@ -211,7 +211,7 @@ yq_recursive_descent_pipe() {
 
         # Process each key
         for _rdp_key in $_rdp_keys_list; do
-            _rdp_tmp_child=$(mktemp)
+            _rdp_tmp_child=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child" 2>/dev/null
             if [ -s "$_rdp_tmp_child" ]; then
                 yq_recursive_descent_pipe "$_rdp_tmp_child" "$_rdp_pipe_expr"
@@ -221,12 +221,12 @@ yq_recursive_descent_pipe() {
     # Check if it'\''s an array
     elif grep -q '^-' "$_rdp_file" 2>/dev/null; then
         # For each element in the array
-        _rdp_tmp_arr=$(mktemp)
+        _rdp_tmp_arr=$(mktemp -p "$_YQ_TEMP_DIR")
         grep '^-' "$_rdp_file" > "$_rdp_tmp_arr"
 
         while IFS= read -r _rdp_line || [ -n "$_rdp_line" ]; do
             _rdp_value=$(echo "$_rdp_line" | sed 's/^- //')
-            _rdp_tmp_elem=$(mktemp)
+            _rdp_tmp_elem=$(mktemp -p "$_YQ_TEMP_DIR")
             echo "$_rdp_value" > "$_rdp_tmp_elem"
             yq_recursive_descent_pipe "$_rdp_tmp_elem" "$_rdp_pipe_expr"
             rm -f "$_rdp_tmp_elem"
@@ -247,7 +247,7 @@ yq_recursive_descent() {
 
     if [ -n "$_rd_keys" ]; then
         # Write keys to a temp file to process without pipe (avoids subshell issues)
-        _rd_keys_file=$(mktemp)
+        _rd_keys_file=$(mktemp -p "$_YQ_TEMP_DIR")
         printf "%s\n" "$_rd_keys" > "$_rd_keys_file"
 
         # Process each key using file redirection instead of pipe
@@ -255,7 +255,7 @@ yq_recursive_descent() {
         while IFS= read -r _rd_key <&3 || [ -n "$_rd_key" ]; do
             [ -z "$_rd_key" ] && continue
 
-            _rd_tmp=$(mktemp)
+            _rd_tmp=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp" 2>/dev/null
 
             if [ -s "$_rd_tmp" ]; then
@@ -269,7 +269,7 @@ yq_recursive_descent() {
         rm -f "$_rd_keys_file"
     elif grep -q '^-' "$_rd_file" 2>/dev/null; then
         # Current node is an array - process each element
-        _rd_arr_file=$(mktemp)
+        _rd_arr_file=$(mktemp -p "$_YQ_TEMP_DIR")
         grep '^-' "$_rd_file" > "$_rd_arr_file"
 
         exec 4< "$_rd_arr_file"
@@ -277,7 +277,7 @@ yq_recursive_descent() {
             [ -z "$_rd_line" ] && continue
 
             _rd_value=$(printf "%s" "$_rd_line" | sed 's/^- //')
-            _rd_tmp=$(mktemp)
+            _rd_tmp=$(mktemp -p "$_YQ_TEMP_DIR")
             printf "%s" "$_rd_value" > "$_rd_tmp"
 
             if [ -s "$_rd_tmp" ]; then
@@ -324,8 +324,8 @@ yq_arithmetic() {
     fi
 
     # Evaluate both sides
-    _tmp_left=$(mktemp)
-    _tmp_right=$(mktemp)
+    _tmp_left=$(mktemp -p "$_YQ_TEMP_DIR")
+    _tmp_right=$(mktemp -p "$_YQ_TEMP_DIR")
 
     yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
 

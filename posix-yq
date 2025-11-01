@@ -17,8 +17,33 @@
 
 # Main yq script - POSIX compliant implementation
 
-# Initialize depth counter for debug output
-_yq_parse_depth=0
+# Global variables
+_yq_parse_depth=0                    # Initialize depth counter for debug output
+_YQ_TEMP_DIR=""                      # Temp directory for all temp files
+_yq_temp_dir_created=0               # Flag to track if we created the temp dir
+
+# Initialize temp directory
+_yq_init_temp_dir() {
+    if [ -z "$_YQ_TEMP_DIR" ]; then
+        _YQ_TEMP_DIR=$(mktemp -d) || {
+            >&2 echo "Error: Failed to create temporary directory"
+            exit 1
+        }
+        _yq_temp_dir_created=1
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Created temp directory: $_YQ_TEMP_DIR"
+    fi
+}
+
+# Cleanup temp directory
+_yq_cleanup_temp_dir() {
+    if [ -n "$_YQ_TEMP_DIR" ] && [ $_yq_temp_dir_created -eq 1 ]; then
+        rm -rf "$_YQ_TEMP_DIR"
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Cleaned up temp directory: $_YQ_TEMP_DIR"
+    fi
+}
+
+# Setup trap handlers for cleanup on exit
+trap '_yq_cleanup_temp_dir' EXIT INT TERM
 
 # Helper function to indent debug output based on call depth
 _yq_debug_indent() {
@@ -94,7 +119,7 @@ yq_parse() {
 
         # Process the parenthesized part first
         _inner=$(echo "$_paren_part" | sed 's/^(//' | sed 's/)$//')
-        _tmp_paren=$(mktemp)
+        _tmp_paren=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_inner" "$_file" > "$_tmp_paren"
 
         # Then process what comes after (including the pipe) with the result
@@ -111,7 +136,7 @@ yq_parse() {
         _after_alt=$(echo "$_query" | sed 's/.* \/\/ //')
 
         # Try to evaluate the first part
-        _tmp_alt=$(mktemp)
+        _tmp_alt=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_before_alt" "$_file" > "$_tmp_alt" 2>/dev/null
 
         # Check if result is empty, null, or doesn't exist
@@ -197,10 +222,10 @@ yq_parse() {
             [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration handler: processing items with remainder: '$_after_pipe'"
             # Create unique state files for this iteration level
             # Each level gets its own state file that won't be clobbered by nested calls
-            _iter_state=$(mktemp)
+            _iter_state=$(mktemp -p "$_YQ_TEMP_DIR")
 
             # Process left side to get items
-            _tmp_pipe=$(mktemp)
+            _tmp_pipe=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_parse "$_before_pipe" "$_file" > "$_tmp_pipe"
 
             # Debug: Show what's in tmp_pipe
@@ -210,7 +235,7 @@ yq_parse() {
             if [ -s "$_tmp_pipe" ]; then
                 # Process each item separately
                 # We need to detect item boundaries for multi-line items
-                _iter_tmp_items=$(mktemp)
+                _iter_tmp_items=$(mktemp -p "$_YQ_TEMP_DIR")
                 [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: about to split AWK input, first 10 lines:" && >&2 head -10 "$_tmp_pipe" | >&2 sed "s/^/  /"
                 [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: AWK input has $(wc -l < $_tmp_pipe) lines total"
                 awk -v tmpbase="$_iter_tmp_items" '
@@ -323,7 +348,7 @@ yq_parse() {
         _std_before_pipe="$_before_pipe"
         _std_after_pipe="$_after_pipe"
 
-        _tmp_pipe=$(mktemp)
+        _tmp_pipe=$(mktemp -p "$_YQ_TEMP_DIR")
         yq_parse "$_std_before_pipe" "$_file" > "$_tmp_pipe"
 
         # Process second part with result from first part
@@ -371,7 +396,7 @@ yq_parse() {
                 _part_value=$(echo "$_part" | sed 's/^"\(.*\)"$/\1/')
             else
                 # Expression - evaluate it
-                _tmp_concat=$(mktemp)
+                _tmp_concat=$(mktemp -p "$_YQ_TEMP_DIR")
                 yq_parse "$_part" "$_file" > "$_tmp_concat"
                 _part_value=$(cat "$_tmp_concat")
                 # Remove quotes if present
@@ -388,7 +413,7 @@ yq_parse() {
             _part_value=$(echo "$_remaining" | sed 's/^"\(.*\)"$/\1/')
         else
             # Expression
-            _tmp_concat=$(mktemp)
+            _tmp_concat=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_parse "$_remaining" "$_file" > "$_tmp_concat"
             _part_value=$(cat "$_tmp_concat")
             # Remove quotes if present
@@ -482,7 +507,7 @@ yq_parse() {
     _remainder=$(echo "$_remainder" | sed 's/^\.//')
 
     # Apply the first token operation
-    _tmp_result=$(mktemp)
+    _tmp_result=$(mktemp -p "$_YQ_TEMP_DIR")
 
     case "$_first_token" in
         "[]")
@@ -508,7 +533,7 @@ yq_parse() {
                 _line_num=0
                 while IFS= read -r _line || [ -n "$_line" ]; do
                     _line_num=$((_line_num + 1))
-                    _item_file=$(mktemp)
+                    _item_file=$(mktemp -p "$_YQ_TEMP_DIR")
                     echo "$_line" > "$_item_file"
                     yq_parse "$_remainder" "$_item_file"
                     rm -f "$_item_file"
@@ -888,7 +913,7 @@ yq_map() {
     _file="$2"
 
     # Create temporary file with grep results to avoid subshell issues
-    _tmp_grep=$(mktemp)
+    _tmp_grep=$(mktemp -p "$_YQ_TEMP_DIR")
     grep '^-' "$_file" > "$_tmp_grep"
 
     # Iterate over array elements
@@ -909,7 +934,7 @@ yq_map() {
             _result=$((_value + _addend))
         # Handle key access like ".name"
         elif echo "$_expr" | grep -q '^\.[a-zA-Z_]'; then
-            _tmp_item=$(mktemp)
+            _tmp_item=$(mktemp -p "$_YQ_TEMP_DIR")
             echo "$_value" > "$_tmp_item"
             _result=$(yq_parse "$_expr" "$_tmp_item")
             rm -f "$_tmp_item"
@@ -979,7 +1004,7 @@ yq_compare() {
     fi
 
     # Evaluate left side (may produce multiple values)
-    _tmp_left=$(mktemp)
+    _tmp_left=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
 
     # Process null comparisons
@@ -1054,7 +1079,7 @@ yq_recursive_descent_pipe() {
     _rdp_pipe_expr="$2"
 
     # Process current node through pipe
-    _rdp_tmp_node=$(mktemp)
+    _rdp_tmp_node=$(mktemp -p "$_YQ_TEMP_DIR")
     cat "$_rdp_file" > "$_rdp_tmp_node"
     yq_parse "$_rdp_pipe_expr" "$_rdp_tmp_node"
     rm -f "$_rdp_tmp_node"
@@ -1063,7 +1088,7 @@ yq_recursive_descent_pipe() {
     # Check if it'\''s an object (has keys with colons)
     if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rdp_file" 2>/dev/null; then
         # For each TOP-LEVEL key in the object (indent = 0)
-        _rdp_tmp_keys=$(mktemp)
+        _rdp_tmp_keys=$(mktemp -p "$_YQ_TEMP_DIR")
         awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
             match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
             print substr($0, RSTART, RLENGTH)
@@ -1075,7 +1100,7 @@ yq_recursive_descent_pipe() {
 
         # Process each key
         for _rdp_key in $_rdp_keys_list; do
-            _rdp_tmp_child=$(mktemp)
+            _rdp_tmp_child=$(mktemp -p "$_YQ_TEMP_DIR")
             yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child" 2>/dev/null
             if [ -s "$_rdp_tmp_child" ]; then
                 yq_recursive_descent_pipe "$_rdp_tmp_child" "$_rdp_pipe_expr"
@@ -1085,12 +1110,12 @@ yq_recursive_descent_pipe() {
     # Check if it'\''s an array
     elif grep -q '^-' "$_rdp_file" 2>/dev/null; then
         # For each element in the array
-        _rdp_tmp_arr=$(mktemp)
+        _rdp_tmp_arr=$(mktemp -p "$_YQ_TEMP_DIR")
         grep '^-' "$_rdp_file" > "$_rdp_tmp_arr"
 
         while IFS= read -r _rdp_line || [ -n "$_rdp_line" ]; do
             _rdp_value=$(echo "$_rdp_line" | sed 's/^- //')
-            _rdp_tmp_elem=$(mktemp)
+            _rdp_tmp_elem=$(mktemp -p "$_YQ_TEMP_DIR")
             echo "$_rdp_value" > "$_rdp_tmp_elem"
             yq_recursive_descent_pipe "$_rdp_tmp_elem" "$_rdp_pipe_expr"
             rm -f "$_rdp_tmp_elem"
@@ -1106,8 +1131,54 @@ yq_recursive_descent() {
     # Output the current node
     cat "$_rd_file"
 
-    # For now, just output the input - full recursion needs more work
-    # TODO: Implement proper recursive descent that traverses all nodes
+    # Check if current node is an object (has top-level keys)
+    _rd_keys=$(grep -E '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rd_file" 2>/dev/null | sed 's/:.*$//')
+
+    if [ -n "$_rd_keys" ]; then
+        # Write keys to a temp file to process without pipe (avoids subshell issues)
+        _rd_keys_file=$(mktemp -p "$_YQ_TEMP_DIR")
+        printf "%s\n" "$_rd_keys" > "$_rd_keys_file"
+
+        # Process each key using file redirection instead of pipe
+        exec 3< "$_rd_keys_file"
+        while IFS= read -r _rd_key <&3 || [ -n "$_rd_key" ]; do
+            [ -z "$_rd_key" ] && continue
+
+            _rd_tmp=$(mktemp -p "$_YQ_TEMP_DIR")
+            yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp" 2>/dev/null
+
+            if [ -s "$_rd_tmp" ]; then
+                yq_recursive_descent "$_rd_tmp"
+            fi
+
+            rm -f "$_rd_tmp"
+        done
+        exec 3<&-
+
+        rm -f "$_rd_keys_file"
+    elif grep -q '^-' "$_rd_file" 2>/dev/null; then
+        # Current node is an array - process each element
+        _rd_arr_file=$(mktemp -p "$_YQ_TEMP_DIR")
+        grep '^-' "$_rd_file" > "$_rd_arr_file"
+
+        exec 4< "$_rd_arr_file"
+        while IFS= read -r _rd_line <&4 || [ -n "$_rd_line" ]; do
+            [ -z "$_rd_line" ] && continue
+
+            _rd_value=$(printf "%s" "$_rd_line" | sed 's/^- //')
+            _rd_tmp=$(mktemp -p "$_YQ_TEMP_DIR")
+            printf "%s" "$_rd_value" > "$_rd_tmp"
+
+            if [ -s "$_rd_tmp" ]; then
+                yq_recursive_descent "$_rd_tmp"
+            fi
+
+            rm -f "$_rd_tmp"
+        done
+        exec 4<&-
+
+        rm -f "$_rd_arr_file"
+    fi
 }
 
 # Arithmetic operations - handles +, -, *, / operators
@@ -1142,8 +1213,8 @@ yq_arithmetic() {
     fi
 
     # Evaluate both sides
-    _tmp_left=$(mktemp)
-    _tmp_right=$(mktemp)
+    _tmp_left=$(mktemp -p "$_YQ_TEMP_DIR")
+    _tmp_right=$(mktemp -p "$_YQ_TEMP_DIR")
 
     yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
 
@@ -1238,11 +1309,11 @@ yq_update() {
     _update_expr=$(echo "$_expr" | sed 's/.* |= //')
 
     # Get current value
-    _tmp_current=$(mktemp)
+    _tmp_current=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_path" "$_file" > "$_tmp_current"
 
     # Apply the update expression to the current value
-    _tmp_updated=$(mktemp)
+    _tmp_updated=$(mktemp -p "$_YQ_TEMP_DIR")
     yq_parse "$_update_expr" "$_tmp_current" > "$_tmp_updated"
     _new_value=$(cat "$_tmp_updated")
 
@@ -1472,6 +1543,9 @@ yq_yaml_to_json() {
 }
 
 
+# Initialize temp directory for all operations
+_yq_init_temp_dir
+
 # Main entry point
 _exit_on_null=0
 _output_format="yaml"
@@ -1578,7 +1652,7 @@ if [ -z "$FILE" ]; then
     if [ ! -t 0 ]; then
         # stdin is available
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Reading from stdin"
-        FILE=$(mktemp)
+        FILE=$(mktemp -p "$_YQ_TEMP_DIR")
         _stdin_content=$(cat)
         _converted_content=$(_json_array_to_yaml "$_stdin_content")
         printf '%s' "$_converted_content" > "$FILE"

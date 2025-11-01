@@ -18,6 +18,9 @@ package generator
 // GenerateEntryPoint returns the main entry point script
 func GenerateEntryPoint() string {
 	return `
+# Initialize temp directory for all operations
+_yq_init_temp_dir
+
 # Main entry point
 _exit_on_null=0
 _output_format="yaml"
@@ -124,7 +127,7 @@ if [ -z "$FILE" ]; then
     if [ ! -t 0 ]; then
         # stdin is available
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Reading from stdin"
-        FILE=$(mktemp)
+        FILE=$(mktemp -p "$_YQ_TEMP_DIR")
         _stdin_content=$(cat)
         _converted_content=$(_json_array_to_yaml "$_stdin_content")
         printf '%s' "$_converted_content" > "$FILE"
