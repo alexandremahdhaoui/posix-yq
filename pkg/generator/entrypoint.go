@@ -161,6 +161,7 @@ else
 fi
 
 # Output result (preserve newlines from multiline results)
+# Always output with newline for consistent behavior
 printf '%s\n' "$_result"
 
 # Handle -e flag: exit with code 5 if result is empty or null

@@ -378,14 +378,8 @@ yq_parse() {
         return
     fi
 
-    # Check for comparison operators (==, !=, etc.)
-    if echo "$_query" | grep -q ' == \| != '; then
-        yq_compare "$_query" "$_file"
-        _yq_parse_depth=$((_yq_parse_depth - 1))
-        return
-    fi
-
-    # Check for functions with arguments
+    # Check for functions with arguments (MUST come before comparison check)
+    # so that select(.[] == "value") is recognized as a function, not a comparison
     if echo "$_query" | grep -q '^[a-zA-Z_][a-zA-Z0-9_]*('; then
         _func_name=$(echo "$_query" | sed 's/(.*//')
         _func_args=$(echo "$_query" | sed 's/^[^(]*//' | sed 's/^(//' | sed 's/)$//')
@@ -410,6 +404,13 @@ yq_parse() {
                 return
                 ;;
         esac
+    fi
+
+    # Check for comparison operators (==, !=, etc.) - AFTER functions check
+    if echo "$_query" | grep -q ' == \| != '; then
+        yq_compare "$_query" "$_file"
+        _yq_parse_depth=$((_yq_parse_depth - 1))
+        return
     fi
 
     # Parse first token and remainder
@@ -898,87 +899,28 @@ yq_select() {
     _sel_expr="$1"
     _sel_file="$2"
 
-    # Check if expression starts with .[] by checking first 3 characters
-    _sel_expr_start=$(echo "$_sel_expr" | cut -c 1-3)
+    # Evaluate the expression and check if any output is truthy
+    # select() passes through the input if the expression produces any truthy value
+    _tmp_result=$(mktemp)
+    yq_parse "$_sel_expr" "$_sel_file" > "$_tmp_result" 2>/dev/null || true
 
-    # Special handling for select with .[] in condition (e.g., select(.[] == "value"))
-    # This should iterate and filter
-    if [ "$_sel_expr_start" = ".[]" ] && echo "$_sel_expr" | grep -q ' == \| != \| < \| > \| <= \| >='; then
-        # Extract the comparison operator and right side
-        if echo "$_sel_expr" | grep -q ' == '; then
-            _operator="=="
-            _right_side=$(echo "$_sel_expr" | sed 's/.* == //')
-        elif echo "$_sel_expr" | grep -q ' != '; then
-            _operator="!="
-            _right_side=$(echo "$_sel_expr" | sed 's/.* != //')
-        else
-            # Other operators not implemented yet
-            return
+    # Check if result contains any truthy values
+    _has_truthy=0
+    while IFS= read -r _line || [ -n "$_line" ]; do
+        # Skip empty lines
+        [ -z "$_line" ] && continue
+        # Check if line is truthy (not false, not null, not empty)
+        if [ "$_line" != "false" ] && [ "$_line" != "null" ]; then
+            _has_truthy=1
+            break
         fi
+    done < "$_tmp_result"
 
-        # Iterate through array and filter
-        _tmp_iter=$(mktemp)
-        yq_iterate "$_sel_file" > "$_tmp_iter"
+    rm -f "$_tmp_result"
 
-        while IFS= read -r _item || [ -n "$_item" ]; do
-            _tmp_item=$(mktemp)
-            echo "$_item" > "$_tmp_item"
-
-            # Compare this item with right side
-            _result=$(yq_compare ". $_operator $_right_side" "$_tmp_item")
-            if [ "$_result" = "true" ]; then
-                printf "%s\n" "$_item"
-            fi
-            rm -f "$_tmp_item"
-        done < "$_tmp_iter"
-        rm -f "$_tmp_iter"
-    # Handle select with pipe in condition (e.g., select(.[] | .key == value))
-    elif [ "$_sel_expr_start" = ".[]" ] && echo "$_sel_expr" | grep -q ' | '; then
-        # Extract parts: .[] | rest
-        _rest=$(echo "$_sel_expr" | sed 's/^\.\[\] | //')
-
-        # Iterate through array
-        _tmp_iter=$(mktemp)
-        yq_iterate "$_sel_file" > "$_tmp_iter"
-
-        _first=1
-        while IFS= read -r _item || [ -n "$_item" ]; do
-            _tmp_item=$(mktemp)
-            echo "$_item" > "$_tmp_item"
-
-            # Evaluate the rest of the expression on this item
-            _tmp_result=$(mktemp)
-            yq_parse "$_rest" "$_tmp_item" > "$_tmp_result"
-
-            # Check if result evaluates to true (non-empty, not false, not null)
-            if [ -s "$_tmp_result" ]; then
-                _result_value=$(cat "$_tmp_result")
-                if [ "$_result_value" = "true" ] || [ -n "$_result_value" ] && [ "$_result_value" != "false" ] && [ "$_result_value" != "null" ]; then
-                    # Item matches, output the whole item with proper formatting
-                    if [ $_first -eq 1 ]; then
-                        printf "%s" "$_item"
-                        _first=0
-                    else
-                        printf "\n%s" "$_item"
-                    fi
-                fi
-            fi
-
-            rm -f "$_tmp_item" "$_tmp_result"
-        done < "$_tmp_iter"
-        rm -f "$_tmp_iter"
-    # Standard select with comparison
-    elif echo "$_sel_expr" | grep -q ' == \| != '; then
-        _result=$(yq_compare "$_sel_expr" "$_sel_file")
-        if [ "$_result" = "true" ]; then
-            cat "$_sel_file"
-        fi
-    else
-        # If no comparison, just check if result is not null/empty
-        _result=$(yq_parse "$_sel_expr" "$_sel_file")
-        if [ -n "$_result" ] && [ "$_result" != "null" ]; then
-            echo "$_result"
-        fi
+    # If we found any truthy value, output the original input
+    if [ "$_has_truthy" -eq 1 ]; then
+        cat "$_sel_file"
     fi
 }
 
@@ -1001,39 +943,74 @@ yq_compare() {
         return
     fi
 
-    # Evaluate left side
-    _left_value=$(yq_parse "$_left" "$_file")
+    # Evaluate left side (may produce multiple values)
+    _tmp_left=$(mktemp)
+    yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
 
-    # Handle null comparisons specially
+    # Process null comparisons
     if [ "$_right" = "null" ]; then
         _right_value="null"
-        # Consider empty as null
-        if [ -z "$_left_value" ]; then
-            _left_value="null"
-        fi
     else
-        # Remove quotes from both sides for string comparison
-        _left_value=$(echo "$_left_value" | sed 's/^"\(.*\)"$/\1/')
+        # Remove quotes from right side for string comparison
         _right_value=$(echo "$_right" | sed 's/^"\(.*\)"$/\1/')
     fi
 
-    # Perform comparison
-    case "$_operator" in
-        "==")
-            if [ "$_left_value" = "$_right_value" ]; then
-                printf "true"
-            else
-                printf "false"
+    # Compare each left value with right value
+    _first=1
+    while IFS= read -r _left_value || [ -n "$_left_value" ]; do
+        # Skip empty lines
+        [ -z "$_left_value" ] && continue
+
+        # Handle null comparisons
+        if [ "$_right" = "null" ]; then
+            if [ -z "$_left_value" ]; then
+                _left_value="null"
             fi
-            ;;
-        "!=")
-            if [ "$_left_value" != "$_right_value" ]; then
-                printf "true"
-            else
-                printf "false"
-            fi
-            ;;
-    esac
+        else
+            # Remove quotes from left side
+            _left_value=$(echo "$_left_value" | sed 's/^"\(.*\)"$/\1/')
+        fi
+
+        # Perform comparison
+        case "$_operator" in
+            "==")
+                if [ "$_left_value" = "$_right_value" ]; then
+                    if [ $_first -eq 1 ]; then
+                        printf "true"
+                        _first=0
+                    else
+                        printf "\ntrue"
+                    fi
+                else
+                    if [ $_first -eq 1 ]; then
+                        printf "false"
+                        _first=0
+                    else
+                        printf "\nfalse"
+                    fi
+                fi
+                ;;
+            "!=")
+                if [ "$_left_value" != "$_right_value" ]; then
+                    if [ $_first -eq 1 ]; then
+                        printf "true"
+                        _first=0
+                    else
+                        printf "\ntrue"
+                    fi
+                else
+                    if [ $_first -eq 1 ]; then
+                        printf "false"
+                        _first=0
+                    else
+                        printf "\nfalse"
+                    fi
+                fi
+                ;;
+        esac
+    done < "$_tmp_left"
+
+    rm -f "$_tmp_left"
 }
 
 # Recursive descent with pipe - apply expression to each node
@@ -1576,6 +1553,7 @@ else
 fi
 
 # Output result (preserve newlines from multiline results)
+# Always output with newline for consistent behavior
 printf '%s\n' "$_result"
 
 # Handle -e flag: exit with code 5 if result is empty or null

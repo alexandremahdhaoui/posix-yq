@@ -2,6 +2,10 @@
   details:
     fruit: true
     color: red
+- name: carrot
+  details:
+    fruit: false
+    color: orange
 - name: banana
   details:
     fruit: true

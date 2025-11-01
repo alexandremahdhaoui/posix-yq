@@ -18,7 +18,7 @@ FAILED_TESTS=0
 
 # Get the root directory of the project
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-POSIX_YQ="${PROJECT_ROOT}/posix-yq"
+POSIX_YQ="${POSIX_YQ:-${PROJECT_ROOT}/posix-yq}"
 SCENARIOS_DIR="${PROJECT_ROOT}/test/unit/scenarios"
 
 # Check if posix-yq exists
@@ -83,9 +83,9 @@ for scenario_dir in "$SCENARIOS_DIR"/[0-9][0-9]-*; do
     ERROR_OUTPUT=$(mktemp)
 
     # Execute the command with a timeout (5 seconds per test)
-    if timeout 5 "$POSIX_YQ" "$QUERY" "$INPUT_FILE" > "$ACTUAL_OUTPUT" 2> "$ERROR_OUTPUT"; then
+    if timeout 5 "$POSIX_YQ" "$QUERY" "$INPUT_FILE" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT"; then
         # Command executed successfully, compare output
-        if diff -q "$EXPECTED_OUTPUT" "$ACTUAL_OUTPUT" > /dev/null 2>&1; then
+        if diff -q "$EXPECTED_OUTPUT" "$ACTUAL_OUTPUT" >/dev/null 2>&1; then
             echo "${GREEN}✓ $SCENARIO_NAME${NC}"
             PASSED_TESTS=$((PASSED_TESTS + 1))
         else

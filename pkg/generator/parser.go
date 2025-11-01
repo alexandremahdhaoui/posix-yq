@@ -332,14 +332,8 @@ yq_parse() {
         return
     fi
 
-    # Check for comparison operators (==, !=, etc.)
-    if echo "$_query" | grep -q ' == \| != '; then
-        yq_compare "$_query" "$_file"
-        _yq_parse_depth=$((_yq_parse_depth - 1))
-        return
-    fi
-
-    # Check for functions with arguments
+    # Check for functions with arguments (MUST come before comparison check)
+    # so that select(.[] == "value") is recognized as a function, not a comparison
     if echo "$_query" | grep -q '^[a-zA-Z_][a-zA-Z0-9_]*('; then
         _func_name=$(echo "$_query" | sed 's/(.*//')
         _func_args=$(echo "$_query" | sed 's/^[^(]*//' | sed 's/^(//' | sed 's/)$//')
@@ -364,6 +358,13 @@ yq_parse() {
                 return
                 ;;
         esac
+    fi
+
+    # Check for comparison operators (==, !=, etc.) - AFTER functions check
+    if echo "$_query" | grep -q ' == \| != '; then
+        yq_compare "$_query" "$_file"
+        _yq_parse_depth=$((_yq_parse_depth - 1))
+        return
     fi
 
     # Parse first token and remainder
