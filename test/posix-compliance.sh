@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # Copyright 2025 Alexandre Mahdhaoui
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,9 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-#!/bin/sh
 
 # POSIX Compliance Test Script for posix-yq
 # Tests the posix-yq script on different POSIX shells
@@ -29,7 +28,7 @@ fi
 
 # Test 1: Run with default shell (sh)
 echo "Test 1: Running with /bin/sh..."
-if sh ./posix-yq test/fixtures/01-simple.yaml > /dev/null 2>&1; then
+if sh ./posix-yq test/fixtures/01-simple.yaml >/dev/null 2>&1; then
     echo "✓ Test 1: sh execution - PASSED"
 else
     echo "✗ Test 1: sh execution - FAILED"
@@ -37,7 +36,7 @@ else
 fi
 
 # Test 2: Check for bashisms with shellcheck (if available)
-if command -v shellcheck > /dev/null 2>&1; then
+if command -v shellcheck >/dev/null 2>&1; then
     echo ""
     echo "Test 2: Running shellcheck..."
     if shellcheck -s sh ./posix-yq; then
@@ -52,10 +51,10 @@ else
 fi
 
 # Test 3: Test with dash (if available)
-if command -v dash > /dev/null 2>&1; then
+if command -v dash >/dev/null 2>&1; then
     echo ""
     echo "Test 3: Running with dash..."
-    if dash ./posix-yq test/fixtures/01-simple.yaml > /dev/null 2>&1; then
+    if dash ./posix-yq test/fixtures/01-simple.yaml >/dev/null 2>&1; then
         echo "✓ Test 3: dash execution - PASSED"
     else
         echo "✗ Test 3: dash execution - FAILED"

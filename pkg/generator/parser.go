@@ -99,6 +99,34 @@ yq_parse() {
         return
     fi
 
+    # Check for functions with arguments BEFORE pipes (so pipes inside function args aren't split)
+    # Pattern: functionname(args)
+    if echo "$_query" | grep -q '^[a-zA-Z_][a-zA-Z0-9_]*('; then
+        _func_name=$(echo "$_query" | sed 's/(.*//')
+        _func_args=$(echo "$_query" | sed 's/^[^(]*//' | sed 's/^(//' | sed 's/)$//')
+
+        case "$_func_name" in
+            "has")
+                # Remove quotes from argument
+                _key=$(echo "$_func_args" | sed 's/^"\(.*\)"$/\1/')
+                yq_has "$_key" "$_file"
+                return
+                ;;
+            "map")
+                yq_map "$_func_args" "$_file"
+                return
+                ;;
+            "select")
+                yq_select "$_func_args" "$_file"
+                return
+                ;;
+            "del")
+                yq_del "$_func_args" "$_file"
+                return
+                ;;
+        esac
+    fi
+
     # Check for pipe operator (split on | and process sequentially)
     if echo "$_query" | grep -q ' | \|^| '; then
         # Handle case where query starts with pipe
@@ -222,6 +250,10 @@ yq_parse() {
                         [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: item #$_item_idx - calling yq_parse with query: '$_current_iter_query'"
 
                         # Process the item (output goes directly to stdout)
+                        # Add a separator line between iterations
+                        if [ "$_item_idx" -gt 1 ]; then
+                            echo ""
+                        fi
                         yq_parse "$_current_iter_query" "$_current_iter_base.$_item_idx"
 
                         [ -n "$POSIX_YQ_DEBUG" ] && _yq_debug_indent "$_yq_parse_depth" "Iteration: item #$_item_idx - yq_parse returned"
@@ -347,35 +379,7 @@ yq_parse() {
         return
     fi
 
-    # Check for functions with arguments (MUST come before comparison check)
-    # so that select(.[] == "value") is recognized as a function, not a comparison
-    if echo "$_query" | grep -q '^[a-zA-Z_][a-zA-Z0-9_]*('; then
-        _func_name=$(echo "$_query" | sed 's/(.*//')
-        _func_args=$(echo "$_query" | sed 's/^[^(]*//' | sed 's/^(//' | sed 's/)$//')
-
-        case "$_func_name" in
-            "has")
-                # Remove quotes from argument
-                _key=$(echo "$_func_args" | sed 's/^"\(.*\)"$/\1/')
-                yq_has "$_key" "$_file"
-                return
-                ;;
-            "map")
-                yq_map "$_func_args" "$_file"
-                return
-                ;;
-            "select")
-                yq_select "$_func_args" "$_file"
-                return
-                ;;
-            "del")
-                yq_del "$_func_args" "$_file"
-                return
-                ;;
-        esac
-    fi
-
-    # Check for comparison operators (==, !=, etc.) - AFTER functions check
+    # Check for comparison operators (==, !=, etc.)
     if echo "$_query" | grep -q ' == \| != '; then
         yq_compare "$_query" "$_file"
         _yq_parse_depth=$((_yq_parse_depth - 1))

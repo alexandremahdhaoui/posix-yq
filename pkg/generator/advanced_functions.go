@@ -74,28 +74,24 @@ yq_select() {
     _sel_expr="$1"
     _sel_file="$2"
 
-    # Evaluate the expression and check if any output is truthy
-    # select() passes through the input if the expression produces any truthy value
-    _tmp_result=$(mktemp)
-    yq_parse "$_sel_expr" "$_sel_file" > "$_tmp_result" 2>/dev/null || true
+    [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[select]: expr='$_sel_expr' file='$_sel_file'"
 
-    # Check if result contains any truthy values
-    _has_truthy=0
-    while IFS= read -r _line || [ -n "$_line" ]; do
-        # Skip empty lines
-        [ -z "$_line" ] && continue
-        # Check if line is truthy (not false, not null, not empty)
-        if [ "$_line" != "false" ] && [ "$_line" != "null" ]; then
-            _has_truthy=1
-            break
-        fi
-    done < "$_tmp_result"
+    # For now, a simple approximation:
+    # if the condition contains "==", evaluate it and check for true
+    # This is a simplified implementation for basic select() support
 
-    rm -f "$_tmp_result"
+    # Evaluate the expression
+    _sel_result=$(yq_parse "$_sel_expr" "$_sel_file" 2>/dev/null) || _sel_result=""
 
-    # If we found any truthy value, output the original input
-    if [ "$_has_truthy" -eq 1 ]; then
+    [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[select]: result='$_sel_result'"
+
+    # Check if result contains any "true" value
+    if printf '%s' "$_sel_result" | grep -q "true"; then
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[select]: found 'true' in result, outputting input"
+        # Output the input unchanged
         cat "$_sel_file"
+    else
+        [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG[select]: did not find 'true' in result"
     fi
 }
 
