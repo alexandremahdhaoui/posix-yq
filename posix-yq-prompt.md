@@ -34,10 +34,20 @@ Traditional `yq` may not be available in minimal containers or restricted enviro
 
 ```
 posix-yq/
-├── cmd/generator/main.go         # Go generator that produces the shell script
+├── cmd/generator/
+│   ├── main.go                   # Main orchestrator - concatenates all modules
+│   ├── shell_header.go           # Shell header and debug utilities
+│   ├── generator_parser.go       # yq_parse recursive parser function
+│   ├── generator_core_functions.go # Key access, iteration, array operations
+│   ├── generator_advanced_functions.go # Map, select, recursion, comparison
+│   ├── generator_operators.go    # Assignment, update, delete operators
+│   ├── generator_json.go         # JSON output conversion
+│   ├── generator_entrypoint.go   # Main entry point and flag parsing
+│   └── main_test.go              # Go unit tests for generator modules
 ├── posix-yq                       # Generated executable shell script (output)
 ├── Makefile                       # Build and test orchestration
 ├── CLAUDE.md                      # Project instructions (follow these!)
+├── posix-yq-prompt.md            # This documentation file
 ├── test/
 │   ├── yq-edge-cd-tests.sh       # Main test suite (15 different test scenarios)
 │   ├── fixtures/                  # Test data files
@@ -45,6 +55,31 @@ posix-yq/
 │   └── e2e/                       # End-to-end tests
 └── build/                         # Build artifacts directory
 ```
+
+### Modular Architecture (Refactored)
+
+The generator has been refactored into modular, testable components:
+
+- **main.go**: Orchestrates the module concatenation in correct order
+- **shell_header.go**: POSIX shell initialization, depth tracking, debug utilities
+- **generator_parser.go**: The main recursive parser with pipe, alternative, and concatenation operators
+- **generator_core_functions.go**: String unquoting, key extraction, array iteration, length, keys operations
+- **generator_advanced_functions.go**: Map, select, comparison, and recursive descent functionality
+- **generator_operators.go**: Assignment (=), update (|=), and delete (del) operators
+- **generator_json.go**: YAML-to-JSON conversion for `-o=j` output format
+- **generator_entrypoint.go**: Flag parsing, stdin detection, main execution flow
+
+Each module is independently testable via Go unit tests (`main_test.go`) that verify:
+- Generated functions are present and complete
+- Concatenation produces valid output
+- No obvious shell syntax errors
+- All required functionality is included
+
+This modular approach allows for easier:
+- **Unit testing**: Each function generator can be tested independently
+- **Maintenance**: Changes to one function type don't affect others
+- **Feature addition**: New functions can be added as new modules
+- **Code review**: Smaller, focused files are easier to review
 
 ---
 
@@ -97,11 +132,58 @@ The entire POSIX shell script is **generated from Go code**, not hand-written. T
 
 ## Understanding the Generator
 
-### File: `cmd/generator/main.go`
+### Modular Architecture
 
-This is a **single Go function** that builds and prints a complete shell script as a string.
+The generator consists of multiple Go files, each responsible for generating a specific part of the shell script:
 
-#### Structure
+1. **main.go**: Orchestrates module concatenation
+   - Calls all generator functions in the correct order
+   - Prints shell shebang
+   - Concatenates all parts into final script
+
+2. **shell_header.go**: Generates shell initialization
+   - Shebang and header comments
+   - Depth tracking variable `_yq_parse_depth`
+   - Debug utilities (`_yq_debug_indent`)
+
+3. **generator_parser.go**: Generates the main parser
+   - `yq_parse()` recursive function
+   - Pipe operator handling
+   - Alternative operator (`//`) handling
+   - String concatenation (`+`) operator
+   - Function calls and operator detection
+
+4. **generator_core_functions.go**: Generates core utilities
+   - `yq_unquote()`: String unquoting
+   - `yq_key_access()`: YAML key extraction
+   - `yq_iterate()`: Array/object iteration
+   - `yq_array_access()`: Array indexing and slicing
+   - `yq_length()`, `yq_keys()`, `yq_to_entries()`, `yq_has()`
+
+5. **generator_advanced_functions.go**: Generates advanced functionality
+   - `yq_map()`: Apply expression to array elements
+   - `yq_select()`: Filter based on conditions
+   - `yq_compare()`: Comparison operations
+   - `yq_recursive_descent()`: Tree traversal
+   - `yq_recursive_descent_pipe()`: Tree traversal with piping
+
+6. **generator_operators.go**: Generates mutation operators
+   - `yq_assign()`: Assignment operator (`=`)
+   - `yq_update()`: Update operator (`|=`)
+   - `yq_del()`: Delete operator
+
+7. **generator_json.go**: Generates JSON conversion
+   - `yq_yaml_to_json()`: YAML to JSON formatter for `-o=j`
+
+8. **generator_entrypoint.go**: Generates main entry point
+   - Flag parsing (`-e`, `-r`, `-o`, `-I`, `-j`)
+   - Stdin detection and reading
+   - Query execution orchestration
+   - Output formatting and cleanup
+
+### File: `cmd/generator/main.go` (Refactored)
+
+The main function now orchestrates all generator modules:
 
 ```go
 package main
@@ -111,26 +193,72 @@ import "fmt"
 func main() {
     fmt.Println("#!/bin/sh")
     fmt.Println()
-    fmt.Println(`
-# Main yq script - POSIX compliant implementation
-# ... entire shell script is in this multi-line string ...
-`)
+
+    fmt.Print(GenerateShellHeader())
+    fmt.Println()
+
+    fmt.Print(GenerateParser())
+    fmt.Println()
+
+    fmt.Print(GenerateCoreFunctions())
+    fmt.Println()
+
+    // ... more modules
 }
 ```
 
 #### Key Characteristics
 
-- **Single fmt.Println() call**: Everything is output as one big string
-- **Backtick strings**: Used for shell code (allows `$` without escaping)
-- **String concatenation**: Separate sections with `+ "some text" +`
-- **Line numbers matter**: When you see error output, calculate position from fmt.Println
+- **Modular functions**: Each module returns a string of shell script code
+- **Backtick strings**: Used for shell code in Go (allows `$` without escaping)
+- **String concatenation**: main.go concatenates modules with `fmt.Print()`
+- **Order matters**: Modules must be concatenated in correct dependency order
 
 ### How to Modify the Generator
 
-1. **Add a new shell function**: Place it in the main backtick string before the entry point
-2. **Modify existing function**: Find the section and edit directly in the string
-3. **Add new flags**: Modify the main entry point flag parsing section
-4. **Test the output**: Use `make build generate` and check `./posix-yq`
+1. **Add a new shell function**:
+   - Decide which logical module it belongs to
+   - Add it to the appropriate generator_*.go file
+   - Regenerate with `make build generate`
+
+2. **Modify existing function**:
+   - Find the function in its corresponding generator_*.go file
+   - Edit the return string
+   - Regenerate with `make build generate`
+
+3. **Add new flags**:
+   - Modify the flag parsing section in `generator_entrypoint.go`
+   - Add necessary variable handling
+   - Test with `make build generate && make test-unit`
+
+4. **Create new module**:
+   - Create new file: `generator_<feature>.go`
+   - Implement `func Generate<Feature>() string`
+   - Call the function from main.go in appropriate order
+   - Add unit tests in main_test.go
+   - Verify with `make build generate && go test ./cmd/generator`
+
+### Unit Tests
+
+The generator includes Go unit tests (`cmd/generator/main_test.go`) that verify:
+
+```bash
+go test ./cmd/generator -v
+
+# Tests verify:
+# - Each module returns non-empty strings
+# - All required functions are generated
+# - Concatenated output is complete
+# - No obvious shell syntax errors
+# - All dependencies are present
+```
+
+Run tests with:
+```bash
+make test-unit-generator
+# or
+cd cmd/generator && go test -v
+```
 
 #### Build Process
 

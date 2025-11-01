@@ -1,6 +1,13 @@
-#!/bin/sh
+package main
 
+import (
+	"fmt"
+)
 
+func main() {
+	fmt.Println("#!/bin/sh")
+	fmt.Println()
+	fmt.Println(`
 # Main yq script - POSIX compliant implementation
 
 # Initialize depth counter for debug output
@@ -18,7 +25,6 @@ _yq_debug_indent() {
     done
     >&2 echo "DEBUG[$_depth]$_indent$_msg"
 }
-
 
 # Parse and execute yq query recursively
 yq_parse() {
@@ -456,7 +462,6 @@ yq_parse() {
     _yq_parse_depth=$((_yq_parse_depth - 1))
 }
 
-
 # Unquote YAML strings (but not null values)
 yq_unquote() {
     _value="$1"
@@ -722,7 +727,7 @@ yq_array_access() {
                 exit
             }
             found == 1 && in_item == 1 {
-                # We'"'"'re in the target item, print all lines
+                # We'\''re in the target item, print all lines
                 print
             }
             ' "$_file"
@@ -812,7 +817,6 @@ yq_has() {
     fi
 }
 
-
 # Map function - apply expression to each array element
 yq_map() {
     _expr="$1"
@@ -862,6 +866,104 @@ yq_map() {
     fi
 
     rm -f "$_tmp_grep"
+}
+
+# Recursive descent with pipe - apply expression to each node
+yq_recursive_descent_pipe() {
+    _rdp_file="$1"
+    _rdp_pipe_expr="$2"
+
+    # Process current node through pipe
+    _rdp_tmp_node=$(mktemp)
+    cat "$_rdp_file" > "$_rdp_tmp_node"
+    yq_parse "$_rdp_pipe_expr" "$_rdp_tmp_node"
+    rm -f "$_rdp_tmp_node"
+
+    # Recursively descend into all child nodes
+    # Check if it's an object (has keys with colons)
+    if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rdp_file" 2>/dev/null; then
+        # For each TOP-LEVEL key in the object (indent = 0)
+        _rdp_tmp_keys=$(mktemp)
+        awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
+            match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
+            print substr($0, RSTART, RLENGTH)
+        }' "$_rdp_file" > "$_rdp_tmp_keys"
+
+        # Read all keys into a space-separated list to avoid fd conflicts
+        _rdp_keys_list=$(cat "$_rdp_tmp_keys" | tr '\n' ' ')
+        rm -f "$_rdp_tmp_keys"
+
+        # Process each key
+        for _rdp_key in $_rdp_keys_list; do
+            _rdp_tmp_child=$(mktemp)
+            yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child"
+            if [ -s "$_rdp_tmp_child" ]; then
+                yq_recursive_descent_pipe "$_rdp_tmp_child" "$_rdp_pipe_expr"
+            fi
+            rm -f "$_rdp_tmp_child"
+        done
+    # Check if it's an array
+    elif grep -q '^-' "$_rdp_file" 2>/dev/null; then
+        # For each element in the array
+        _rdp_tmp_arr=$(mktemp)
+        grep '^-' "$_rdp_file" > "$_rdp_tmp_arr"
+
+        while IFS= read -r _rdp_line || [ -n "$_rdp_line" ]; do
+            _rdp_value=$(echo "$_rdp_line" | sed 's/^- //')
+            _rdp_tmp_elem=$(mktemp)
+            echo "$_rdp_value" > "$_rdp_tmp_elem"
+            yq_recursive_descent_pipe "$_rdp_tmp_elem" "$_rdp_pipe_expr"
+            rm -f "$_rdp_tmp_elem"
+        done < "$_rdp_tmp_arr"
+        rm -f "$_rdp_tmp_arr"
+    fi
+}
+
+# Recursive descent - output all nodes in tree
+yq_recursive_descent() {
+    _rd_file="$1"
+
+    # Output the current node
+    cat "$_rd_file"
+
+    # Recursively descend into all child nodes
+    # Check if it's an object (has keys with colons)
+    if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rd_file" 2>/dev/null; then
+        # For each TOP-LEVEL key in the object (indent = 0)
+        _rd_tmp_keys=$(mktemp)
+        awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
+            match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
+            print substr($0, RSTART, RLENGTH)
+        }' "$_rd_file" > "$_rd_tmp_keys"
+
+        # Read all keys into a space-separated list to avoid fd conflicts
+        _rd_keys_list=$(cat "$_rd_tmp_keys" | tr '\n' ' ')
+        rm -f "$_rd_tmp_keys"
+
+        # Process each key
+        for _rd_key in $_rd_keys_list; do
+            _rd_tmp_child=$(mktemp)
+            yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp_child"
+            if [ -s "$_rd_tmp_child" ]; then
+                yq_recursive_descent "$_rd_tmp_child"
+            fi
+            rm -f "$_rd_tmp_child"
+        done
+    # Check if it's an array
+    elif grep -q '^-' "$_rd_file" 2>/dev/null; then
+        # For each element in the array
+        _rd_tmp_arr=$(mktemp)
+        grep '^-' "$_rd_file" > "$_rd_tmp_arr"
+
+        while IFS= read -r _rd_line || [ -n "$_rd_line" ]; do
+            _rd_value=$(echo "$_rd_line" | sed 's/^- //')
+            _rd_tmp_elem=$(mktemp)
+            echo "$_rd_value" > "$_rd_tmp_elem"
+            yq_recursive_descent "$_rd_tmp_elem"
+            rm -f "$_rd_tmp_elem"
+        done < "$_rd_tmp_arr"
+        rm -f "$_rd_tmp_arr"
+    fi
 }
 
 # Select function - filter elements based on condition
@@ -1007,105 +1109,6 @@ yq_compare() {
     esac
 }
 
-# Recursive descent with pipe - apply expression to each node
-yq_recursive_descent_pipe() {
-    _rdp_file="$1"
-    _rdp_pipe_expr="$2"
-
-    # Process current node through pipe
-    _rdp_tmp_node=$(mktemp)
-    cat "$_rdp_file" > "$_rdp_tmp_node"
-    yq_parse "$_rdp_pipe_expr" "$_rdp_tmp_node"
-    rm -f "$_rdp_tmp_node"
-
-    # Recursively descend into all child nodes
-    # Check if it'\''s an object (has keys with colons)
-    if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rdp_file" 2>/dev/null; then
-        # For each TOP-LEVEL key in the object (indent = 0)
-        _rdp_tmp_keys=$(mktemp)
-        awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
-            match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
-            print substr($0, RSTART, RLENGTH)
-        }' "$_rdp_file" > "$_rdp_tmp_keys"
-
-        # Read all keys into a space-separated list to avoid fd conflicts
-        _rdp_keys_list=$(cat "$_rdp_tmp_keys" | tr '\n' ' ')
-        rm -f "$_rdp_tmp_keys"
-
-        # Process each key
-        for _rdp_key in $_rdp_keys_list; do
-            _rdp_tmp_child=$(mktemp)
-            yq_key_access "$_rdp_key" "$_rdp_file" > "$_rdp_tmp_child"
-            if [ -s "$_rdp_tmp_child" ]; then
-                yq_recursive_descent_pipe "$_rdp_tmp_child" "$_rdp_pipe_expr"
-            fi
-            rm -f "$_rdp_tmp_child"
-        done
-    # Check if it'\''s an array
-    elif grep -q '^-' "$_rdp_file" 2>/dev/null; then
-        # For each element in the array
-        _rdp_tmp_arr=$(mktemp)
-        grep '^-' "$_rdp_file" > "$_rdp_tmp_arr"
-
-        while IFS= read -r _rdp_line || [ -n "$_rdp_line" ]; do
-            _rdp_value=$(echo "$_rdp_line" | sed 's/^- //')
-            _rdp_tmp_elem=$(mktemp)
-            echo "$_rdp_value" > "$_rdp_tmp_elem"
-            yq_recursive_descent_pipe "$_rdp_tmp_elem" "$_rdp_pipe_expr"
-            rm -f "$_rdp_tmp_elem"
-        done < "$_rdp_tmp_arr"
-        rm -f "$_rdp_tmp_arr"
-    fi
-}
-
-# Recursive descent - output all nodes in tree
-yq_recursive_descent() {
-    _rd_file="$1"
-
-    # Output the current node
-    cat "$_rd_file"
-
-    # Recursively descend into all child nodes
-    # Check if it'\''s an object (has keys with colons)
-    if grep -q '^[a-zA-Z_][a-zA-Z0-9_]*:' "$_rd_file" 2>/dev/null; then
-        # For each TOP-LEVEL key in the object (indent = 0)
-        _rd_tmp_keys=$(mktemp)
-        awk '/^[a-zA-Z_][a-zA-Z0-9_]*:/ {
-            match($0, /^[a-zA-Z_][a-zA-Z0-9_]*/)
-            print substr($0, RSTART, RLENGTH)
-        }' "$_rd_file" > "$_rd_tmp_keys"
-
-        # Read all keys into a space-separated list to avoid fd conflicts
-        _rd_keys_list=$(cat "$_rd_tmp_keys" | tr '\n' ' ')
-        rm -f "$_rd_tmp_keys"
-
-        # Process each key
-        for _rd_key in $_rd_keys_list; do
-            _rd_tmp_child=$(mktemp)
-            yq_key_access "$_rd_key" "$_rd_file" > "$_rd_tmp_child"
-            if [ -s "$_rd_tmp_child" ]; then
-                yq_recursive_descent "$_rd_tmp_child"
-            fi
-            rm -f "$_rd_tmp_child"
-        done
-    # Check if it'\''s an array
-    elif grep -q '^-' "$_rd_file" 2>/dev/null; then
-        # For each element in the array
-        _rd_tmp_arr=$(mktemp)
-        grep '^-' "$_rd_file" > "$_rd_tmp_arr"
-
-        while IFS= read -r _rd_line || [ -n "$_rd_line" ]; do
-            _rd_value=$(echo "$_rd_line" | sed 's/^- //')
-            _rd_tmp_elem=$(mktemp)
-            echo "$_rd_value" > "$_rd_tmp_elem"
-            yq_recursive_descent "$_rd_tmp_elem"
-            rm -f "$_rd_tmp_elem"
-        done < "$_rd_tmp_arr"
-        rm -f "$_rd_tmp_arr"
-    fi
-}
-
-
 # Assignment operator - set a value
 yq_assign() {
     _expr="$1"
@@ -1118,7 +1121,7 @@ yq_assign() {
     # Remove leading dot from path
     _path=$(echo "$_path" | sed 's/^\.//')
 
-    # Remove quotes from value if it'\''s a string literal
+    # Remove quotes from value if it's a string literal
     _value=$(echo "$_value" | sed 's/^"\(.*\)"$/\1/')
 
     # Update the file with the new value
@@ -1314,7 +1317,6 @@ yq_del() {
     fi
 }
 
-
 # Convert YAML output to JSON format
 # Input: Multi-line YAML formatted as "key: value" pairs from iteration
 # Output: One or more JSON objects, one per line
@@ -1322,7 +1324,7 @@ yq_yaml_to_json() {
     _yaml_input="$1"
 
     # Use AWK to detect object boundaries
-    # When we see a key we'\''ve seen before at depth 0, it means a new object is starting
+    # When we see a key we've seen before at depth 0, it means a new object is starting
     printf '%s\n' "$_yaml_input" | awk '
     BEGIN {
         first = 1  # First property in current object
@@ -1387,7 +1389,6 @@ yq_yaml_to_json() {
     }
     '
 }
-
 
 # Main entry point
 _exit_on_null=0
@@ -1465,7 +1466,7 @@ if [ -z "$FILE" ]; then
         >&2 echo "Error: No input file and no query provided"
         exit 1
     else
-        # Only query provided, assume it'\''s actually the file
+        # Only query provided, assume it's actually the file
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Only query provided, using as file"
         FILE="$QUERY"
         QUERY="."
@@ -1516,3 +1517,5 @@ if [ $_exit_on_null -eq 1 ]; then
 fi
 
 exit $_exit_code
+`)
+}
