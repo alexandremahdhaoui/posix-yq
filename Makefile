@@ -3,17 +3,17 @@
 # Default target
 all: build generate
 
-# Build the Go binary into ./build/
-build:
-	@echo "Building generator binary..."
-	@mkdir -p build
-	@go build -o build/generator ./cmd/generator
-
 # Clean build artifacts
 clean:
 	@echo "Cleaning build directory..."
 	@rm -rf ./build/*
 	@rm -f ./posix-yq
+
+# Build the Go binary into ./build/
+build: clean
+	@echo "Building generator binary..."
+	@mkdir -p build
+	@go build -o build/generator ./cmd/generator
 
 # Generate the posix-yq script
 generate: build
@@ -24,20 +24,13 @@ generate: build
 
 # Run unit tests for the Go generator
 test-unit-generator:
+	@echo "========================================="
 	@echo "Running Go generator unit tests..."
-	@if go list ./pkg/generator/... >/dev/null 2>&1; then \
-		go test ./pkg/generator/... -v; \
-	else \
-		echo "No Go generator tests found, skipping..."; \
-	fi
-
-# Run unit tests for the posix-yq script
-test-unit-posix-yq:
-	@echo "Running posix-yq script unit tests..."
-	@./test/unit/run_tests.sh
+	@echo "========================================="
+	@go test -v ./...
 
 # Run all unit tests
-test-unit: build generate
+test-unit: build generate test-unit-generator
 	@echo "Running all unit tests..."
 	@echo ""
 	@echo "========================================="
@@ -54,15 +47,13 @@ test-unit: build generate
 
 # Run E2E tests (depends on build and generate)
 test-e2e: build generate
+	@echo "========================================="
 	@echo "Running E2E tests..."
+	@echo "========================================="
 	@./test/e2e/run_tests.sh
 
 # Run all tests
-test: build generate
-	@echo "Running all tests..."
-	@./test/unit/run_tests.sh 
-	@./test/e2e/run_tests.sh
-	@echo "All tests completed"
+test: test-unit test-e2e
 
 # Help target
 help:

@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/alexandremahdhaoui/posix-yq/pkg/generator"
 )
 
 func main() {
@@ -10,23 +12,23 @@ func main() {
 	fmt.Println()
 
 	// Concatenate all generator modules in the correct order
-	fmt.Print(GenerateShellHeader())
+	fmt.Print(generator.GenerateShellHeader())
 	fmt.Println()
-	
-	fmt.Print(GenerateParser())
+
+	fmt.Print(generator.GenerateParser())
 	fmt.Println()
-	
-	fmt.Print(GenerateCoreFunctions())
+
+	fmt.Print(generator.GenerateCoreFunctions())
 	fmt.Println()
-	
-	fmt.Print(GenerateAdvancedFunctions())
+
+	fmt.Print(generator.GenerateAdvancedFunctions())
 	fmt.Println()
-	
-	fmt.Print(GenerateOperators())
+
+	fmt.Print(generator.GenerateOperators())
 	fmt.Println()
-	
-	fmt.Print(GenerateJSON())
+
+	fmt.Print(generator.GenerateJSON())
 	fmt.Println()
-	
-	fmt.Print(GenerateEntryPoint())
+
+	fmt.Print(generator.GenerateEntryPoint())
 }
