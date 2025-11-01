@@ -1382,19 +1382,23 @@ else
     _result=$(yq_unquote "$_result")
 fi
 
+# Clean up result: remove blank line separators from array iteration
+# The iteration uses blank lines as separators, but we only want actual content
+while printf '%s' "$_result" | grep -q '^[[:space:]]*$'; do
+    _result=$(printf '%s\n' "$_result" | grep -v '^[[:space:]]*$')
+done
+
+# Output result (preserve newlines from multiline results)
+printf '%s\n' "$_result"
+
 # Handle -e flag: exit with code 5 if result is empty or null
+# MUST output the result BEFORE checking exit condition
 if [ $_exit_on_null -eq 1 ]; then
     if [ -z "$_result" ] || [ "$_result" = "null" ]; then
         exit 5
     fi
 fi
 
-# Clean up result: remove extra blank lines
-# Keep only content lines and single blank lines between them
-_result=$(printf '%s\n' "$_result" | sed '/^$/N;/^\n$/!P;D')
-
-# Output result (preserve newlines from multiline results)
-printf '%s\n' "$_result"
 exit $_exit_code
 `)
 }
