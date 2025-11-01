@@ -1429,9 +1429,49 @@ if [ "$1" = "e" ] || [ "$1" = "eval" ] || [ "$1" = "select" ] || [ "$1" = "empty
     shift
 fi
 
+# Display help message
+_show_help() {
+    printf "Usage: yq [OPTIONS] QUERY [FILE]\n"
+    printf "\n"
+    printf "A POSIX-compliant implementation of yq for querying YAML and JSON data.\n"
+    printf "\n"
+    printf "ARGUMENTS:\n"
+    printf "  QUERY              YQ query expression (required)\n"
+    printf "  FILE               Input file (optional, reads from stdin if not provided)\n"
+    printf "\n"
+    printf "OPTIONS:\n"
+    printf "  -e, --error-mode   Exit with code 5 if result is empty or null\n"
+    printf "  -r, --raw-output   Output raw strings without quotes\n"
+    printf "  -o, --output FMT   Set output format: yaml (default) or json/j\n"
+    printf "  -o=FMT             Short form of --output\n"
+    printf "  -I, --indent N     Set indentation level (default: 2)\n"
+    printf "  -I=N               Short form of --indent\n"
+    printf "  -j, --json         Shorthand for -o=json\n"
+    printf "  -h, --help         Display this help message\n"
+    printf "\n"
+    printf "EXAMPLES:\n"
+    printf "  yq '.key' file.yaml                  Extract a key value\n"
+    printf "  yq '.[]' array.yaml                  Iterate over array elements\n"
+    printf "  yq -r '.name' data.yaml              Output raw string\n"
+    printf "  yq -o=json '.files[]' config.yaml    Output as JSON\n"
+    printf "  echo '{key: value}' | yq '.key'     Read from stdin\n"
+    printf "\n"
+    printf "For more information, visit: https://github.com/alexandremahdhaoui/posix-yq\n"
+}
+
+# Check for help flag before processing
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    _show_help
+    exit 0
+fi
+
 # Parse flags
 while [ $# -gt 0 ]; do
     case "$1" in
+        -h|--help)
+            _show_help
+            exit 0
+            ;;
         -e)
             _exit_on_null=1
             shift

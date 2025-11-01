@@ -30,19 +30,21 @@ test-unit-generator:
 	@go test -v ./...
 
 # Run all unit tests
-test-unit: build generate test-unit-generator
+test-unit-edge-cd: build generate
 	@echo "Running all unit tests..."
 	@echo ""
 	@echo "========================================="
 	@echo "Running Edge-CD Real-World Tests"
 	@echo "========================================="
 	@./test/yq-edge-cd-tests.sh ./posix-yq
-	@echo ""
+
+test-unit-advanced-scenarios: build generate
 	@echo "========================================="
 	@echo "Running Unit Test Scenarios"
 	@echo "========================================="
 	@./test/unit/run_tests.sh 
-	@echo ""
+
+test-unit: build generate test-unit-generator test-unit-edge-cd test-unit-advanced-scenarios
 	@echo "Unit tests completed"
 
 # Run E2E tests (depends on build and generate)

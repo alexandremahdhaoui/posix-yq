@@ -212,3 +212,70 @@ func TestGenerateEntryPointWhileLoopForParsing(t *testing.T) {
 		t.Error("EntryPoint not using while loop for flag parsing")
 	}
 }
+
+// TestGenerateEntryPointHasHelpFunction verifies help functionality
+func TestGenerateEntryPointHasHelpFunction(t *testing.T) {
+	result := GenerateEntryPoint()
+
+	if !strings.Contains(result, "_show_help()") {
+		t.Error("EntryPoint missing _show_help function")
+	}
+}
+
+// TestGenerateEntryPointHandlesHelpFlag verifies -h flag support
+func TestGenerateEntryPointHandlesHelpFlag(t *testing.T) {
+	result := GenerateEntryPoint()
+
+	if !strings.Contains(result, "-h") || !strings.Contains(result, "--help") {
+		t.Error("EntryPoint missing -h/--help flag support")
+	}
+}
+
+// TestGenerateEntryPointHelpContainsUsage verifies usage information
+func TestGenerateEntryPointHelpContainsUsage(t *testing.T) {
+	result := GenerateEntryPoint()
+
+	tests := []string{
+		"Usage:",      // Usage line
+		"ARGUMENTS:",  // Arguments section
+		"OPTIONS:",    // Options section
+		"EXAMPLES:",   // Examples section
+	}
+
+	for _, test := range tests {
+		if !strings.Contains(result, test) {
+			t.Errorf("Help text missing '%s'", test)
+		}
+	}
+}
+
+// TestGenerateEntryPointHelpDocumentsFlags verifies flag documentation
+func TestGenerateEntryPointHelpDocumentsFlags(t *testing.T) {
+	result := GenerateEntryPoint()
+
+	tests := []string{
+		"error-mode",   // -e flag
+		"raw-output",   // -r flag
+		"output",       // -o flag
+		"indent",       // -I flag
+		"json",         // -j flag
+	}
+
+	for _, test := range tests {
+		if !strings.Contains(result, test) {
+			t.Errorf("Help text missing documentation for '%s' flag", test)
+		}
+	}
+}
+
+// TestGenerateEntryPointHelpIncludesExamples verifies usage examples
+func TestGenerateEntryPointHelpIncludesExamples(t *testing.T) {
+	result := GenerateEntryPoint()
+
+	if !strings.Contains(result, ".key") {
+		t.Error("Help text missing key access example")
+	}
+	if !strings.Contains(result, ".[]") {
+		t.Error("Help text missing array iteration example")
+	}
+}
