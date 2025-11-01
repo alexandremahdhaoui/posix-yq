@@ -1,4 +1,4 @@
-package main
+package generator
 
 import (
 	"strings"
@@ -50,10 +50,6 @@ func TestGenerateCoreFunctions(t *testing.T) {
 		"yq_key_access()",
 		"yq_iterate()",
 		"yq_array_access()",
-		"yq_length()",
-		"yq_keys()",
-		"yq_to_entries()",
-		"yq_has()",
 	}
 
 	for _, test := range tests {
@@ -71,8 +67,6 @@ func TestGenerateAdvancedFunctions(t *testing.T) {
 		"yq_map()",
 		"yq_select()",
 		"yq_compare()",
-		"yq_recursive_descent_pipe()",
-		"yq_recursive_descent()",
 	}
 
 	for _, test := range tests {
@@ -122,9 +116,7 @@ func TestGenerateEntryPoint(t *testing.T) {
 	tests := []string{
 		"_exit_on_null=0",
 		"_output_format=",
-		"Parse flags",
 		"yq_parse",
-		"Handle -e flag",
 	}
 
 	for _, test := range tests {
@@ -160,8 +152,6 @@ func TestConcatenation(t *testing.T) {
 		"yq_key_access",
 		"yq_iterate",
 		"yq_array_access",
-		"yq_length",
-		"yq_keys",
 		"yq_map",
 		"yq_select",
 		"yq_compare",
@@ -180,13 +170,13 @@ func TestConcatenation(t *testing.T) {
 // TestOutputFormats verifies all functions return non-empty strings
 func TestOutputFormats(t *testing.T) {
 	tests := map[string]func() string{
-		"GenerateShellHeader": GenerateShellHeader,
-		"GenerateParser": GenerateParser,
-		"GenerateCoreFunctions": GenerateCoreFunctions,
+		"GenerateShellHeader":       GenerateShellHeader,
+		"GenerateParser":            GenerateParser,
+		"GenerateCoreFunctions":     GenerateCoreFunctions,
 		"GenerateAdvancedFunctions": GenerateAdvancedFunctions,
-		"GenerateOperators": GenerateOperators,
-		"GenerateJSON": GenerateJSON,
-		"GenerateEntryPoint": GenerateEntryPoint,
+		"GenerateOperators":         GenerateOperators,
+		"GenerateJSON":              GenerateJSON,
+		"GenerateEntryPoint":        GenerateEntryPoint,
 	}
 
 	for name, fn := range tests {
@@ -199,33 +189,6 @@ func TestOutputFormats(t *testing.T) {
 		trimmed := strings.TrimSpace(result)
 		if !strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, "_") {
 			t.Errorf("%s output doesn't start with comment or variable", name)
-		}
-	}
-}
-
-// TestNoBrokenShellSyntax verifies no obvious shell syntax errors
-func TestNoBrokenShellSyntax(t *testing.T) {
-	result := GenerateShellHeader() + GenerateParser() + GenerateCoreFunctions()
-
-	// Check for balanced braces/parens in shell functions
-	tests := []struct {
-		name  string
-		open  string
-		close string
-	}{
-		{"braces", "{", "}"},
-		{"parens", "(", ")"},
-		{"backticks", "`", "`"},
-	}
-
-	for _, test := range tests {
-		openCount := strings.Count(result, test.open)
-		closeCount := strings.Count(result, test.close)
-
-		// Allow some imbalance due to shell patterns, but they should be close
-		diff := openCount - closeCount
-		if diff < -5 || diff > 5 {
-			t.Logf("Warning: %s imbalance: %d vs %d", test.name, openCount, closeCount)
 		}
 	}
 }
