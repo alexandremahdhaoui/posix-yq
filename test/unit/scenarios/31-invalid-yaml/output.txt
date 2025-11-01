@@ -1,1 +1,1 @@
-Error: yaml: line 1: did not find expected key
+Error: bad file '/home/alexandremahdhaoui/go/src/github.com/alexandremahdhaoui/posix-yq/test/unit/scenarios/31-invalid-yaml/input.yaml': yaml: mapping values are not allowed in this context

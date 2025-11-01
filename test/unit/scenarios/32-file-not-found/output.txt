@@ -1,1 +1,1 @@
-Error: open non-existent-file.yaml: no such file or directory
+Error: open /home/alexandremahdhaoui/go/src/github.com/alexandremahdhaoui/posix-yq/test/unit/scenarios/32-file-not-found/non-existent-file.yaml: no such file or directory

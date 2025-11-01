@@ -68,19 +68,27 @@ for scenario_dir in "$SCENARIOS_DIR"/[0-9][0-9]-*; do
     COMMAND_FILE="${scenario_dir}/command.txt"
 
     # Try to find input file - could be .yaml, .json, or other formats
+    # input.txt can contain a file path reference (for testing non-existent files)
     INPUT_FILE=""
     if [ -f "${scenario_dir}/input.yaml" ]; then
         INPUT_FILE="${scenario_dir}/input.yaml"
     elif [ -f "${scenario_dir}/input.json" ]; then
         INPUT_FILE="${scenario_dir}/input.json"
     elif [ -f "${scenario_dir}/input.txt" ]; then
-        INPUT_FILE="${scenario_dir}/input.txt"
+        # input.txt contains a file path to test (may not exist)
+        INPUT_FILE="$(cat "${scenario_dir}/input.txt" | tr -d '\n')"
+        # Make it relative to scenario dir if not absolute
+        if [ "${INPUT_FILE#/}" = "$INPUT_FILE" ]; then
+            INPUT_FILE="${scenario_dir}/$INPUT_FILE"
+        fi
     fi
 
-    # Expected output could be .yaml or .txt (for error messages)
+    # Expected output could be .yaml, .json, or .txt (for error messages)
     EXPECTED_OUTPUT=""
-    if [ -f "${scenario_dir}/output.yaml" ]; then
+    if [ -f "${scenario_dir}/output.yaml" ] && [ -s "${scenario_dir}/output.yaml" ]; then
         EXPECTED_OUTPUT="${scenario_dir}/output.yaml"
+    elif [ -f "${scenario_dir}/output.json" ]; then
+        EXPECTED_OUTPUT="${scenario_dir}/output.json"
     elif [ -f "${scenario_dir}/output.txt" ]; then
         EXPECTED_OUTPUT="${scenario_dir}/output.txt"
     fi
@@ -106,15 +114,69 @@ for scenario_dir in "$SCENARIOS_DIR"/[0-9][0-9]-*; do
     ACTUAL_OUTPUT=$(mktemp)
     ERROR_OUTPUT=$(mktemp)
 
+    # Check if the command starts with flags or subcommands
+    # Parse the command into flags, subcommand, and expression
+    FLAGS=""
+    SUBCOMMAND=""
+    EXPRESSION=""
+
+    case "$COMMAND" in
+        -o\ *|--output-format\ *)
+            # Command starts with output format flag (e.g., "-o json")
+            # Extract the flag and its value
+            if [ "${COMMAND#-o }" != "$COMMAND" ]; then
+                FLAGS="-o ${COMMAND#-o }"
+                # For format-only commands, expression is "." (identity)
+                EXPRESSION="."
+            fi
+            ;;
+        eval-all\ *)
+            SUBCOMMAND="eval-all"
+            EXPRESSION="${COMMAND#eval-all }"
+            # Strip leading/trailing whitespace
+            EXPRESSION="${EXPRESSION#"${EXPRESSION%%[![:space:]]*}"}"
+            ;;
+        *)
+            # Regular expression without subcommand or flags
+            EXPRESSION="$COMMAND"
+            ;;
+    esac
+
+    # Strip outer quotes from expression if present (command.txt contains shell-quoted strings)
+    case "$EXPRESSION" in
+        \'*\')
+            EXPRESSION="${EXPRESSION#\'}"
+            EXPRESSION="${EXPRESSION%\'}"
+            ;;
+        \"*\")
+            EXPRESSION="${EXPRESSION#\"}"
+            EXPRESSION="${EXPRESSION%\"}"
+            ;;
+    esac
+
     # Build the command - if INPUT_FILE exists, include it; otherwise, run without it
     # This handles commands that work on stdin or expect file-not-found errors
-    # Use eval in a subshell to properly handle commands with spaces and special characters
+    # Execute directly without sh -c to properly handle quotes in commands
+    EXIT_CODE=0
     if [ -n "$INPUT_FILE" ]; then
-        timeout 5 sh -c "\"$POSIX_YQ\" \"$COMMAND\" \"$INPUT_FILE\" >\"$ACTUAL_OUTPUT\" 2>\"$ERROR_OUTPUT\""
+        if [ -n "$FLAGS" ]; then
+            # shellcheck disable=SC2086
+            "$POSIX_YQ" $FLAGS "$EXPRESSION" "$INPUT_FILE" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        elif [ -n "$SUBCOMMAND" ]; then
+            "$POSIX_YQ" "$SUBCOMMAND" "$EXPRESSION" "$INPUT_FILE" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        else
+            "$POSIX_YQ" "$EXPRESSION" "$INPUT_FILE" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        fi
     else
-        timeout 5 sh -c "\"$POSIX_YQ\" \"$COMMAND\" >\"$ACTUAL_OUTPUT\" 2>\"$ERROR_OUTPUT\""
+        if [ -n "$FLAGS" ]; then
+            # shellcheck disable=SC2086
+            "$POSIX_YQ" $FLAGS "$EXPRESSION" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        elif [ -n "$SUBCOMMAND" ]; then
+            "$POSIX_YQ" "$SUBCOMMAND" "$EXPRESSION" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        else
+            "$POSIX_YQ" "$EXPRESSION" >"$ACTUAL_OUTPUT" 2>"$ERROR_OUTPUT" || EXIT_CODE=$?
+        fi
     fi
-    EXIT_CODE=$?
 
     # Check if we expect error output (output.txt) or regular output (output.yaml)
     if [ "${EXPECTED_OUTPUT##*.}" = "txt" ]; then

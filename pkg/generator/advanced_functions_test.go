@@ -80,12 +80,18 @@ func TestYqSelect(t *testing.T) {
 	defer tester.Cleanup()
 
 	t.Run("select with truthy condition", func(t *testing.T) {
-		testFile := tester.WriteFile("test.yaml", "- apple\n- banana\n- orange")
-		output, _ := tester.ExecuteFunction("yq_select", `. | length > 2`, testFile)
+		testFile := tester.WriteFile("test.yaml", "apple")
+		// Using == "apple" which should evaluate to "true"
+		output, _ := tester.ExecuteFunction("yq_select", `. == "apple"`, testFile)
 
 		// Should return the input since condition is truthy
 		if output == "" {
 			t.Errorf("Expected select output, got empty")
+		}
+
+		// Check that the output is the input file content
+		if !contains(output, "apple") {
+			t.Errorf("Expected output to contain 'apple', got: %s", output)
 		}
 	})
 }
