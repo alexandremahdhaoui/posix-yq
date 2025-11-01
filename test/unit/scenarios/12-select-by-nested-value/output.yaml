@@ -1,0 +1,8 @@
+- name: apple
+  details:
+    fruit: true
+    color: red
+- name: banana
+  details:
+    fruit: true
+    color: yellow

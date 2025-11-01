@@ -1,0 +1,126 @@
+# Real yq Usage Examples (tested on yq v4.44.5)
+
+## Successfully Tested Features
+
+### 1. Array Field Selection
+```bash
+yq '.items[].name' file.yaml
+# Output: apple\nbanana\ncherry
+```
+
+### 2. Filter/Select with Conditions
+```bash
+yq '.items[] | select(.price > 1)' file.yaml
+# Output: Objects where price > 1
+```
+
+### 3. Map Operator
+```bash
+yq '.items | map(.name)' file.yaml
+# Output: Array of just names
+```
+
+### 4. Sort Array
+```bash
+yq '.metadata.ratings | sort' file.yaml
+# Output: [3, 4, 4, 5, 5]
+```
+
+### 5. Unique Values
+```bash
+yq '.metadata.ratings | unique' file.yaml
+# Output: [4, 5, 3]
+```
+
+### 6. Min/Max
+```bash
+yq '.metadata.ratings | max' file.yaml
+# Output: 5
+```
+
+### 7. Arithmetic Operations
+```bash
+yq '.age + 5' file.yaml
+# Output: 35
+```
+
+### 8. String Concatenation
+```bash
+yq '.name + " Doe"' file.yaml
+# Output: John Doe
+```
+
+### 9. Contains Check
+```bash
+yq '.name | contains("Jo")' file.yaml
+# Output: true
+```
+
+### 10. Split String
+```bash
+yq '.name | split("o")' file.yaml
+# Output: ["J", "hn"]
+```
+
+### 11. Join Array
+```bash
+yq '.metadata.tags | join(", ")' file.yaml
+# Output: fruit, healthy, organic
+```
+
+### 12. Type Checking
+```bash
+yq '.age | type' file.yaml
+# Output: !!int
+```
+
+### 13. Flatten
+```bash
+echo "[[1,2],[3,4]]" | yq 'flatten'
+# Output: [1, 2, 3, 4]
+```
+
+### 14. Group By
+```bash
+yq '.items | group_by(.price)' file.yaml
+# Output: Groups items by price
+```
+
+### 15. To/From Entries
+```bash
+yq '.metadata | to_entries' file.yaml
+# Output: Array of {key, value} objects
+```
+
+### 16. Map with Addition
+```bash
+yq '.items | map(. + {"total": (.price * 2)})' file.yaml
+# Output: Items with added 'total' field
+```
+
+### 17. Delete Elements
+```bash
+yq '.items | del(.[1])' file.yaml
+# Output: Array without second element
+```
+
+## Priority Implementation Order
+
+### Phase 3: High Priority (Next to implement)
+1. **select() operator** - Filter with conditions
+2. **map() operator** - Transform array elements
+3. **sort/sort_by** - Sort arrays
+4. **unique** - Remove duplicates
+5. **min/max** - Find extremes
+6. **String operators** - split, join, contains
+7. **Arithmetic operators** - +, -, *, /
+8. **Comparison operators** - >, <, >=, <=, ==, !=
+
+### Phase 4: Medium Priority
+9. **flatten** - Flatten nested arrays
+10. **group_by** - Group elements
+11. **to_entries/from_entries** - Object transformations
+12. **del** - Delete elements
+13. **type** - Type checking
+14. **reverse** - Reverse arrays
+15. **add** - Sum array elements

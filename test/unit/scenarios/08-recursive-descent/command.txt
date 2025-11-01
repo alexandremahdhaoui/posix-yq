@@ -1,0 +1,1 @@
+.. | .c | select(. != null)

@@ -1,0 +1,6 @@
+person:
+  name: Bob
+  age: 35
+  address:
+    city: London
+    country: UK

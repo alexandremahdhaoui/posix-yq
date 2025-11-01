@@ -1,0 +1,17 @@
+name: John
+age: 30
+active: true
+score: 95.5
+items:
+  - name: apple
+    price: 1.50
+  - name: banana
+    price: 0.75
+  - name: cherry
+    price: 2.00
+metadata:
+  tags:
+    - fruit
+    - healthy
+    - organic
+  ratings: [4, 5, 3, 5, 4]

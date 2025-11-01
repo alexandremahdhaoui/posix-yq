@@ -1,0 +1,1 @@
+Error: open non-existent-file.yaml: no such file or directory

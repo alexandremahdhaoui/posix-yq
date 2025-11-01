@@ -1,0 +1,1 @@
+select(documentIndex == 1) | .b
