@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # Copyright 2025 Alexandre Mahdhaoui
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,12 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-#!/bin/sh
-
 # Regenerate posix-yq script
 echo "Regenerating posix-yq..."
-go run cmd/generator/main.go > posix-yq && chmod +x posix-yq
+go run cmd/generator/main.go >posix-yq && chmod +x posix-yq
 
 # Test Case 1: Read entire YAML file
 echo "Running Test 1: Read entire YAML file..."

@@ -289,9 +289,31 @@ yq_parse() {
         return
     fi
 
-    # Check for string concatenation with + (e.g., .key + "=" + .value)
+    # Check for arithmetic operators (-, *, /) - these are definitely not concatenation
+    if echo "$_query" | grep -q ' - \| \* \| / '; then
+        yq_arithmetic "$_query" "$_file"
+        _yq_parse_depth=$((_yq_parse_depth - 1))
+        return
+    fi
+
+    # Check for addition/concatenation with +
+    # If it's a simple expr + number, treat as arithmetic
+    # Otherwise, treat as string concatenation
     if echo "$_query" | grep -q ' + '; then
-        # Split by + and evaluate each part, then concatenate
+        # Check if there's only one + and right side is a number (arithmetic case)
+        if ! echo "$_query" | grep -q '.* + .* + '; then
+            _test_left=$(echo "$_query" | sed 's/ +.*//')
+            _test_right=$(echo "$_query" | sed 's/.* + //')
+
+            # If right side is just a number, might be arithmetic
+            if echo "$_test_right" | grep -q '^[0-9]\+$'; then
+                yq_arithmetic "$_query" "$_file"
+                _yq_parse_depth=$((_yq_parse_depth - 1))
+                return
+            fi
+        fi
+
+        # Otherwise, split by + and evaluate each part, then concatenate
         _result=""
         _remaining="$_query"
 

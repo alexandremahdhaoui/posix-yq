@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # Copyright 2025 Alexandre Mahdhaoui
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,8 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-#!/bin/sh
 # yq Test Script
 # Tests all yq command patterns found in edge-cd shell scripts
 # Usage: ./yq-test-script <path-to-yq-binary>

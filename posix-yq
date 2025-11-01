@@ -1,4 +1,18 @@
 #!/bin/sh
+#
+# Copyright 2025 Alexandre Mahdhaoui
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 
 # Main yq script - POSIX compliant implementation
@@ -320,9 +334,31 @@ yq_parse() {
         return
     fi
 
-    # Check for string concatenation with + (e.g., .key + "=" + .value)
+    # Check for arithmetic operators (-, *, /) - these are definitely not concatenation
+    if echo "$_query" | grep -q ' - \| \* \| / '; then
+        yq_arithmetic "$_query" "$_file"
+        _yq_parse_depth=$((_yq_parse_depth - 1))
+        return
+    fi
+
+    # Check for addition/concatenation with +
+    # If it's a simple expr + number, treat as arithmetic
+    # Otherwise, treat as string concatenation
     if echo "$_query" | grep -q ' + '; then
-        # Split by + and evaluate each part, then concatenate
+        # Check if there's only one + and right side is a number (arithmetic case)
+        if ! echo "$_query" | grep -q '.* + .* + '; then
+            _test_left=$(echo "$_query" | sed 's/ +.*//')
+            _test_right=$(echo "$_query" | sed 's/.* + //')
+
+            # If right side is just a number, might be arithmetic
+            if echo "$_test_right" | grep -q '^[0-9]\+$'; then
+                yq_arithmetic "$_query" "$_file"
+                _yq_parse_depth=$((_yq_parse_depth - 1))
+                return
+            fi
+        fi
+
+        # Otherwise, split by + and evaluate each part, then concatenate
         _result=""
         _remaining="$_query"
 
@@ -1109,6 +1145,84 @@ yq_recursive_descent() {
         done < "$_rd_tmp_arr"
         rm -f "$_rd_tmp_arr"
     fi
+}
+
+# Arithmetic operations - handles +, -, *, / operators
+yq_arithmetic() {
+    _expr="$1"
+    _file="$2"
+
+    # Determine operator
+    _operator=""
+    _left=""
+    _right=""
+
+    if echo "$_expr" | grep -q ' + '; then
+        _operator="+"
+        _left=$(echo "$_expr" | sed 's/ +.*//')
+        _right=$(echo "$_expr" | sed 's/.* + //')
+    elif echo "$_expr" | grep -q ' - '; then
+        _operator="-"
+        _left=$(echo "$_expr" | sed 's/ -.*//')
+        _right=$(echo "$_expr" | sed 's/.* - //')
+    elif echo "$_expr" | grep -q ' \* '; then
+        _operator="*"
+        _left=$(echo "$_expr" | sed 's/ \*.*//')
+        _right=$(echo "$_expr" | sed 's/.* \* //')
+    elif echo "$_expr" | grep -q ' / '; then
+        _operator="/"
+        _left=$(echo "$_expr" | sed 's/ \/.*//')
+        _right=$(echo "$_expr" | sed 's/.* \/ //')
+    else
+        echo "null"
+        return
+    fi
+
+    # Evaluate both sides
+    _tmp_left=$(mktemp)
+    _tmp_right=$(mktemp)
+
+    yq_parse "$_left" "$_file" > "$_tmp_left" 2>/dev/null || true
+
+    # For right side, check if it's a literal number or expression
+    if echo "$_right" | grep -q '^[0-9]\+$'; then
+        echo "$_right" > "$_tmp_right"
+    else
+        yq_parse "$_right" "$_file" > "$_tmp_right" 2>/dev/null || true
+    fi
+
+    # Read left and right values
+    _left_val=$(cat "$_tmp_left" 2>/dev/null)
+    _right_val=$(cat "$_tmp_right" 2>/dev/null)
+
+    # Check if both are numeric
+    if echo "$_left_val" | grep -q '^-\?[0-9]\+\(\\.[0-9]\+\)\?$' && \
+       echo "$_right_val" | grep -q '^-\?[0-9]\+\(\\.[0-9]\+\)\?$'; then
+        # Numeric operation - use awk to avoid POSIX shell arithmetic issues
+        case "$_operator" in
+            "+")
+                echo "$_left_val" | awk -v r="$_right_val" '{printf "%d", $1 + r}'
+                ;;
+            "-")
+                echo "$_left_val" | awk -v r="$_right_val" '{printf "%d", $1 - r}'
+                ;;
+            "*")
+                echo "$_left_val" | awk -v r="$_right_val" '{printf "%d", $1 * r}'
+                ;;
+            "/")
+                echo "$_left_val" | awk -v r="$_right_val" '{printf "%d", int($1 / r)}'
+                ;;
+        esac
+    else
+        # String concatenation (only for +)
+        if [ "$_operator" = "+" ]; then
+            printf '%s%s' "$_left_val" "$_right_val"
+        else
+            echo "null"
+        fi
+    fi
+
+    rm -f "$_tmp_left" "$_tmp_right"
 }
 
 

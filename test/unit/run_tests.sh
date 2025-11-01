@@ -1,3 +1,5 @@
+#!/bin/sh
+#
 # Copyright 2025 Alexandre Mahdhaoui
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,9 +13,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
-#!/bin/sh
 
 # Unit test runner for posix-yq
 # This script tests the generated posix-yq script against test scenarios
