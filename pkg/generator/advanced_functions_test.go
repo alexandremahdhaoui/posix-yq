@@ -1,174 +1,108 @@
 package generator
 
 import (
-	"strings"
 	"testing"
 )
 
-// TestGenerateAdvancedFunctionsIsNonEmpty verifies output is not empty
-func TestGenerateAdvancedFunctionsIsNonEmpty(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-	if len(result) == 0 {
-		t.Error("GenerateAdvancedFunctions returned empty string")
+func TestYqCompare(t *testing.T) {
+	// yq_compare depends on yq_parse
+	tester := NewShellFunctionTesterWithDeps(t,
+		GenerateShellHeader(),
+		GenerateCoreFunctions(),
+		GenerateParser(),
+		GenerateAdvancedFunctions(),
+	)
+	defer tester.Cleanup()
+
+	tests := []struct {
+		name        string
+		expr        string
+		fileContent string
+		expected    string
+	}{
+		{
+			name:        "simple equality true",
+			expr:        ". == 5",
+			fileContent: "5",
+			expected:    "true",
+		},
+		{
+			name:        "simple equality false",
+			expr:        ". == 5",
+			fileContent: "3",
+			expected:    "false",
+		},
+		{
+			name:        "string equality",
+			expr:        `. == "hello"`,
+			fileContent: `"hello"`,
+			expected:    "true",
+		},
+		{
+			name:        "not equal operator",
+			expr:        ". != 5",
+			fileContent: "3",
+			expected:    "true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testFile := tester.WriteFile("test.yaml", tt.fileContent)
+			tester.ExecuteFunctionExpect(tt.expected, "yq_compare", tt.expr, testFile)
+		})
 	}
 }
 
-// TestGenerateAdvancedFunctionsHasMapFunction verifies map function
-func TestGenerateAdvancedFunctionsHasMapFunction(t *testing.T) {
-	result := GenerateAdvancedFunctions()
+func TestYqSelect(t *testing.T) {
+	// yq_select depends on yq_parse
+	tester := NewShellFunctionTesterWithDeps(t,
+		GenerateShellHeader(),
+		GenerateCoreFunctions(),
+		GenerateParser(),
+		GenerateAdvancedFunctions(),
+	)
+	defer tester.Cleanup()
 
-	if !strings.Contains(result, "yq_map()") {
-		t.Error("GenerateAdvancedFunctions missing yq_map function")
-	}
-}
+	t.Run("select with truthy condition", func(t *testing.T) {
+		testFile := tester.WriteFile("test.yaml", "- apple\n- banana\n- orange")
+		output, _ := tester.ExecuteFunction("yq_select", `. | length > 2`, testFile)
 
-// TestGenerateAdvancedFunctionsHasSelectFunction verifies select function
-func TestGenerateAdvancedFunctionsHasSelectFunction(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "yq_select()") {
-		t.Error("GenerateAdvancedFunctions missing yq_select function")
-	}
-}
-
-// TestGenerateAdvancedFunctionsHasCompareFunction verifies comparison
-func TestGenerateAdvancedFunctionsHasCompareFunction(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "yq_compare()") {
-		t.Error("GenerateAdvancedFunctions missing yq_compare function")
-	}
-}
-
-// TestGenerateAdvancedFunctionsHasRecursiveDescentFunction verifies recursion
-func TestGenerateAdvancedFunctionsHasRecursiveDescentFunction(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	tests := []string{
-		"yq_recursive_descent()",     // Basic recursive descent
-		"yq_recursive_descent_pipe()", // Recursive descent with pipe
-	}
-
-	for _, test := range tests {
-		if !strings.Contains(result, test) {
-			t.Errorf("GenerateAdvancedFunctions missing '%s'", test)
+		// Should return the input since condition is truthy
+		if output == "" {
+			t.Errorf("Expected select output, got empty")
 		}
-	}
+	})
 }
 
-// TestGenerateAdvancedFunctionsMapHandlesExpression verifies map expression
-func TestGenerateAdvancedFunctionsMapHandlesExpression(t *testing.T) {
-	result := GenerateAdvancedFunctions()
+func TestYqMap(t *testing.T) {
+	code := GenerateAdvancedFunctions()
+	tester := NewShellFunctionTester(t, code)
+	defer tester.Cleanup()
 
-	// yq_map should have parameters
-	if !strings.Contains(result, "yq_map()") {
-		t.Error("yq_map missing function definition")
-	}
-}
+	t.Run("map arithmetic", func(t *testing.T) {
+		testFile := tester.WriteFile("test.yaml", "- 1\n- 2\n- 3")
+		output, _ := tester.ExecuteFunction("yq_map", ". * 2", testFile)
 
-// TestGenerateAdvancedFunctionsSelectHandlesCondition verifies select condition
-func TestGenerateAdvancedFunctionsSelectHandlesCondition(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "yq_select") {
-		t.Error("yq_select function missing")
-	}
-}
-
-// TestGenerateAdvancedFunctionsCompareHandlesOperators verifies comparison
-func TestGenerateAdvancedFunctionsCompareHandlesOperators(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	tests := []string{
-		"==",  // Equal
-		"!=",  // Not equal
-	}
-
-	for _, test := range tests {
-		if !strings.Contains(result, test) {
-			t.Errorf("yq_compare missing operator '%s'", test)
+		// Should contain mapped values
+		if output != "- 2\n- 4\n- 6\n" {
+			t.Errorf("Expected mapped values, got: %q", output)
 		}
-	}
+	})
 }
 
-// TestGenerateAdvancedFunctionsMapIteratesItems verifies map iteration
-func TestGenerateAdvancedFunctionsMapIteratesItems(t *testing.T) {
-	result := GenerateAdvancedFunctions()
+func TestYqKeys(t *testing.T) {
+	code := GenerateAdvancedFunctions()
+	tester := NewShellFunctionTester(t, code)
+	defer tester.Cleanup()
 
-	if !strings.Contains(result, "yq_iterate") {
-		t.Error("yq_map not iterating items")
-	}
-}
+	t.Run("object keys", func(t *testing.T) {
+		testFile := tester.WriteFile("test.yaml", "name: John\nage: 30\ncity: NYC")
+		output, _ := tester.ExecuteFunction("yq_keys", testFile)
 
-// TestGenerateAdvancedFunctionsSelectFiltersItems verifies filtering
-func TestGenerateAdvancedFunctionsSelectFiltersItems(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "yq_parse") {
-		t.Error("yq_select not using yq_parse for filtering")
-	}
-}
-
-// TestGenerateAdvancedFunctionsRecursiveDescentChecksLiterals verifies literal handling
-func TestGenerateAdvancedFunctionsRecursiveDescentChecksLiterals(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "yq_recursive_descent") {
-		t.Error("Recursive descent function missing")
-	}
-}
-
-// TestGenerateAdvancedFunctionsCompareConvertsValues verifies value conversion
-func TestGenerateAdvancedFunctionsCompareConvertsValues(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "_left_val") {
-		t.Error("yq_compare missing value conversion")
-	}
-}
-
-// TestGenerateAdvancedFunctionsProperlyHandleNulls verifies null handling
-func TestGenerateAdvancedFunctionsProperlyHandleNulls(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "null") {
-		t.Error("Advanced functions missing null handling")
-	}
-}
-
-// TestGenerateAdvancedFunctionsUsesTemporaryFiles verifies temp file usage
-func TestGenerateAdvancedFunctionsUsesTemporaryFiles(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "mktemp") {
-		t.Error("Advanced functions missing temporary file creation")
-	}
-}
-
-// TestGenerateAdvancedFunctionsProperlyCleans verifies cleanup
-func TestGenerateAdvancedFunctionsProperlyCleans(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "rm -f") {
-		t.Error("Advanced functions missing cleanup of temporary files")
-	}
-}
-
-// TestGenerateAdvancedFunctionsHasArrayCheck verifies array detection
-func TestGenerateAdvancedFunctionsHasArrayCheck(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	// Should check if input is array
-	if !strings.Contains(result, "-") {
-		t.Error("Advanced functions missing array detection")
-	}
-}
-
-// TestGenerateAdvancedFunctionsHasStringEscape verifies string escaping
-func TestGenerateAdvancedFunctionsHasStringEscape(t *testing.T) {
-	result := GenerateAdvancedFunctions()
-
-	if !strings.Contains(result, "sed") {
-		t.Error("Advanced functions missing sed for string escaping")
-	}
+		// Should contain keys
+		if output == "" {
+			t.Errorf("Expected keys output, got empty")
+		}
+	})
 }
