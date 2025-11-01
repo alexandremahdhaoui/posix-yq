@@ -70,7 +70,9 @@ if [ -z "$FILE" ]; then
         # stdin is available
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Reading from stdin"
         FILE=$(mktemp)
-        cat > "$FILE"
+        _stdin_content=$(cat)
+        _converted_content=$(_json_array_to_yaml "$_stdin_content")
+        printf '%s' "$_converted_content" > "$FILE"
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: Stdin written to $FILE"
         [ -n "$POSIX_YQ_DEBUG" ] && >&2 echo "DEBUG: File size: $(wc -c < $FILE)"
         _cleanup_file="$FILE"

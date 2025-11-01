@@ -16,9 +16,9 @@ clean:
 	@rm -f ./posix-yq
 
 # Generate the posix-yq script
-generate:
+generate: build
 	@echo "Generating posix-yq script..."
-	@go run cmd/generator/main.go > posix-yq
+	@./build/generator > posix-yq
 	@chmod +x posix-yq
 	@echo "posix-yq script generated successfully"
 
